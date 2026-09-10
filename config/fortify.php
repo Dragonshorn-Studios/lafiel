@@ -161,9 +161,8 @@ return [
     */
 
     'features' => [
-        Features::registration(),
-        Features::resetPasswords(),
-        Features::emailVerification(),
+        // One local administrator is created through first-run setup.
+        // Registration, password reset, and email verification stay off.
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,
