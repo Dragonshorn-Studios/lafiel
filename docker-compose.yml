@@ -1,0 +1,82 @@
+# Lafiel production stack for Coolify and plain `docker compose`.
+#
+# One image, three roles: app (web), queue (queue:work), scheduler.
+# Copy .env.production.example to .env next to this file, fill in the
+# secrets, then run `docker compose up -d --build`.
+
+x-app-common: &app-common
+  build: .
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: &app-env
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_NAME: Lafiel
+    APP_KEY: ${APP_KEY:?set APP_KEY in .env (php artisan key:generate --show)}
+    APP_URL: ${APP_URL:?set APP_URL in .env}
+    # Trust forwarded headers from the reverse proxy. Keep "*" only when the
+    # app is always reached through the proxy; if the port is exposed
+    # directly, set explicit proxy IPs/CIDRs or empty this to disable.
+    TRUSTED_PROXIES: ${TRUSTED_PROXIES:-*}
+    LOG_CHANNEL: stderr
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_DATABASE: ${DB_DATABASE:-lafiel}
+    DB_USERNAME: ${DB_USERNAME:-lafiel}
+    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    SESSION_DRIVER: database
+    CACHE_STORE: database
+    QUEUE_CONNECTION: database
+    RUN_MIGRATIONS: "false"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-lafiel}
+      POSTGRES_USER: ${DB_USERNAME:-lafiel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    <<: *app-common
+    environment:
+      <<: *app-env
+      ROLE: web
+      RUN_MIGRATIONS: "true"
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - app-storage:/var/www/html/storage/app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  queue:
+    <<: *app-common
+    environment:
+      <<: *app-env
+      ROLE: queue
+
+  scheduler:
+    <<: *app-common
+    environment:
+      <<: *app-env
+      ROLE: scheduler
+
+volumes:
+  postgres-data:
+  app-storage:

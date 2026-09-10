@@ -1,7 +1,7 @@
 <?php
 
-test('returns a successful response', function () {
+test('guests visiting the root are sent to the dashboard, which requires login', function () {
     $response = $this->get(route('home'));
 
-    $response->assertOk();
+    $response->assertRedirect(route('dashboard'));
 });

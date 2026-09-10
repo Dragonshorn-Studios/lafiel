@@ -22,7 +22,7 @@ Fixed Cloudflare subscriptions are v1.1. Provider invoice actuals, usage billing
 
 ## Technology and deployment
 
-- PHP 8.3 and Laravel 13 (`^13.0`)
+- PHP 8.5 and Laravel 13 (`^13.0`)
 - PostgreSQL as the supported production database
 - Blade/Livewire server-rendered UI
 - Tailwind using Lafiel semantic tokens
