@@ -16,6 +16,10 @@ x-app-common: &app-common
     APP_NAME: Lafiel
     APP_KEY: ${APP_KEY:?set APP_KEY in .env (php artisan key:generate --show)}
     APP_URL: ${APP_URL:?set APP_URL in .env}
+    # Trust forwarded headers from the reverse proxy. Keep "*" only when the
+    # app is always reached through the proxy; if the port is exposed
+    # directly, set explicit proxy IPs/CIDRs or empty this to disable.
+    TRUSTED_PROXIES: ${TRUSTED_PROXIES:-*}
     LOG_CHANNEL: stderr
     DB_CONNECTION: pgsql
     DB_HOST: postgres

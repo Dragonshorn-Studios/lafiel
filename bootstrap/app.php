@@ -12,10 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Deployments front the app with a reverse proxy (Coolify's Traefik)
-        // that terminates TLS; without trusted proxies, generated URLs and
-        // cookies would use the wrong scheme.
-        $middleware->trustProxies(at: '*');
+        //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

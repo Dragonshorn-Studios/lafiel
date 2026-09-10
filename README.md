@@ -46,6 +46,8 @@ docker compose up -d --build
 
 The web role listens on `APP_PORT` (default 8080). The stack contains PostgreSQL with a named volume for data; `/health`-style checks use `GET /up`, which returns 200 only when the application and the database are both healthy.
 
+Forwarded headers (`X-Forwarded-*`) are honored only from `TRUSTED_PROXIES` (`*`, IPs/CIDR ranges, or empty). The compose stack defaults to `*` because Coolify fronts the app with Traefik; if you expose the port directly, set specific proxy IPs or leave it empty so clients cannot spoof the scheme or client IP.
+
 ### Coolify
 
 Deploy the repository as a Docker Compose service: point a domain at the `app` service (container port 80) and set `APP_KEY`, `APP_URL`, and `DB_PASSWORD` as environment variables (the compose file interpolates them from the service environment). Set Coolify's health check path to `/up`.
