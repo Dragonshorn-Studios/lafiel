@@ -117,16 +117,21 @@ Unknown and incomplete states are product features. Never hide them behind an ap
 The AFFiNE source contains six illustrative PNG concepts:
 
 1. `01-overview-desktop.png` (1672×941)
+   ![Desktop Overview](assets/imperial-ledger/01-overview-desktop.png)
 2. `02-services.png` (1672×941)
+   ![Services](assets/imperial-ledger/02-services.png)
 3. `03-service-details-ovh.png` (1672×941)
+   ![Service details for OVHcloud](assets/imperial-ledger/03-service-details-ovh.png)
 4. `04-providers-add-provider.png` (1672×941)
+   ![Providers and Add provider](assets/imperial-ledger/04-providers-add-provider.png)
 5. `05-overview-mobile.png` (887×1774)
+   ![Mobile Overview](assets/imperial-ledger/05-overview-mobile.png)
 6. `06-logo-wordmark-sheet.png` (1536×1024)
+   ![Logo and wordmark sheet](assets/imperial-ledger/06-logo-wordmark-sheet.png)
 
-They are illustrative examples with sample data. The semantic tokens and behavioral requirements in this document win over mockup pixels. When the source PNGs are added, keep these stable names under `docs/assets/imperial-ledger/` and reference them with relative paths.
+They are illustrative examples with sample data. The semantic tokens and behavioral requirements in this document win over mockup pixels. The source PNGs live under `docs/assets/imperial-ledger/` and use stable repository-relative paths.
 
 ## Anti-patterns
 
 ThemeForest admin templates, neon/cyberpunk, anime art, purple gradient SaaS, “AI insights,” red charts merely because spend increased, excessive KPI cards, 11 px data tables, raw colors scattered through Blade, or any presentation that hides uncertainty.
-
 
