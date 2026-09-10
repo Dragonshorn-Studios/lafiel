@@ -10,13 +10,14 @@ use Symfony\Component\HttpFoundation\Response;
 class EnsureInstalled
 {
     /**
-     * Routes that must stay reachable in both install states: the Livewire
-     * update endpoint serves the setup form itself, and the health check
-     * must never depend on application state.
+     * Requests that must stay reachable in both install states: the
+     * Livewire update endpoint (page components POST there and must not
+     * be redirected as HTML), and the health check, which must never
+     * depend on application state.
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->routeIs('livewire.update', 'up')) {
+        if ($request->routeIs('*livewire.update') || $request->is('up')) {
             return $next($request);
         }
 

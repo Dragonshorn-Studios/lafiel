@@ -148,3 +148,7 @@ test('mutations run behind request-forgery protection', function () {
 
     expect($web)->toContain(PreventRequestForgery::class);
 });
+
+test('the health check stays reachable while not installed', function () {
+    $this->get('/up')->assertOk();
+});
