@@ -32,6 +32,7 @@ class ServiceFactory extends Factory
             'provider_type' => null,
             'category' => fake()->randomElement(['compute', 'storage', 'network', 'license', 'saas']),
             'name' => fake()->words(asText: true),
+            'vendor' => null,
             'url' => null,
             'notes' => null,
             'first_seen_at' => now(),

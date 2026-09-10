@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string|null $provider_type
  * @property string $category
  * @property string $name
+ * @property string|null $vendor
  * @property string|null $url
  * @property string|null $notes
  * @property CarbonImmutable|null $first_seen_at
@@ -33,7 +34,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['provider_account_id', 'external_id', 'provider_type', 'category', 'name', 'url', 'notes', 'first_seen_at', 'last_seen_at', 'missing_complete_runs', 'lifecycle_state'])]
+#[Fillable(['provider_account_id', 'external_id', 'provider_type', 'category', 'name', 'vendor', 'url', 'notes', 'first_seen_at', 'last_seen_at', 'missing_complete_runs', 'lifecycle_state'])]
 class Service extends Model
 {
     /** @use HasFactory<ServiceFactory> */
