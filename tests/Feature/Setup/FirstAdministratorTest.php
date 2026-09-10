@@ -111,10 +111,10 @@ test('setup action is idempotent when the administrator appeared before creation
 test('the database rejects a second user even when the application is bypassed', function () {
     User::factory()->create();
 
+    // On Postgres the violating statement aborts the surrounding
+    // transaction, so nothing else can be queried in this test after it.
     expect(fn () => User::factory()->create())
         ->toThrow(UniqueConstraintViolationException::class);
-
-    expect(User::query()->count())->toEqual(1);
 });
 
 test('public registration, password reset, and email verification stay disabled', function () {
