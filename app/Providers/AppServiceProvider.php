@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Domain\Providers\AdapterRegistry;
 use App\Listeners\VerifyDatabaseHealth;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Events\DiagnosingHealth;
@@ -18,7 +19,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(AdapterRegistry::class);
     }
 
     /**
