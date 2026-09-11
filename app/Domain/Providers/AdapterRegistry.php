@@ -7,9 +7,10 @@ use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 
 /**
  * Registry of provider adapters by provider key. Registered as a
- * singleton; adapters register themselves at boot (the OVH adapter
- * arrives with its own issue). The registry resolves adapters only —
- * it never persists or fetches on its own.
+ * singleton. No adapter ships yet — the first real adapter (OVH,
+ * separate issue) will register itself here at boot; tests register
+ * fakes. The registry resolves adapters only — it never persists or
+ * fetches on its own.
  */
 final class AdapterRegistry
 {
@@ -18,6 +19,10 @@ final class AdapterRegistry
 
     public function register(string $providerKey, ProviderAdapter $adapter): void
     {
+        if (isset($this->adapters[$providerKey])) {
+            throw new \LogicException("Provider [{$providerKey}] is already registered.");
+        }
+
         $this->adapters[$providerKey] = $adapter;
     }
 
@@ -34,13 +39,5 @@ final class AdapterRegistry
         }
 
         return $adapter;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function registeredKeys(): array
-    {
-        return array_keys($this->adapters);
     }
 }

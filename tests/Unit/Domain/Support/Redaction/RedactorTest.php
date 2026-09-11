@@ -68,3 +68,26 @@ it('ignores empty and non-scalar payload values', function () {
 
     expect($redactor->message('secret is empty'))->toBe('secret is empty');
 });
+
+it('redacts the longest secret first when one contains another', function () {
+    $redactor = new Redactor([
+        'password' => 'secretvalue',
+        'api_key' => 'secret',
+    ]);
+
+    expect($redactor->message('token secretvalue with secret inside'))->toBe(
+        'token [redacted] with [redacted] inside',
+    );
+});
+
+it('redacts numeric secrets without touching unrelated scalars', function () {
+    $redactor = new Redactor([
+        'pin' => 12345678,
+    ]);
+
+    expect($redactor->array(['code' => 12345678, 'count' => 5, 'flag' => true]))->toBe([
+        'code' => '[redacted]',
+        'count' => 5,
+        'flag' => true,
+    ]);
+});

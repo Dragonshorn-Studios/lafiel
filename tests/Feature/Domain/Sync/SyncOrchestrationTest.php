@@ -12,12 +12,14 @@ use App\Domain\Costs\Models\Renewal;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\AdapterRegistry;
+use App\Domain\Providers\Dtos\CapabilitySet;
 use App\Domain\Providers\Dtos\CostFact;
 use App\Domain\Providers\Dtos\CostFactBatch;
 use App\Domain\Providers\Dtos\CredentialCheck;
 use App\Domain\Providers\Dtos\InventoryBatch;
 use App\Domain\Providers\Dtos\InventoryItem;
 use App\Domain\Providers\Enums\BatchCompleteness;
+use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCapabilityState;
@@ -40,13 +42,14 @@ use function Pest\Laravel\artisan;
 
 beforeEach(function () {
     $this->freezeTime();
+    $this->app->forgetInstance(AdapterRegistry::class);
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeAccount(FakeProviderAdapter $adapter, array $attributes = [], array $credentialAttributes = []): ProviderAccount
+function makeAccount(FakeProviderAdapter $adapter, array $attributes = [], array $credentialAttributes = [], ?string $registerAs = 'fakeprovider'): ProviderAccount
 {
     $account = ProviderAccount::factory()
         ->create([...$attributes, 'provider_key' => $attributes['provider_key'] ?? 'fakeprovider']);
@@ -54,7 +57,9 @@ function makeAccount(FakeProviderAdapter $adapter, array $attributes = [], array
     ProviderCredential::factory()
         ->create([...$credentialAttributes, 'provider_account_id' => $account->id]);
 
-    app(AdapterRegistry::class)->register('fakeprovider', $adapter);
+    if ($registerAs !== null) {
+        app(AdapterRegistry::class)->register($registerAs, $adapter);
+    }
 
     return $account;
 }
@@ -120,6 +125,16 @@ function costBatch(array $facts = [], BatchCompleteness $completeness = BatchCom
         $warnings,
         $capabilityCompleteness,
     );
+}
+
+function emptyInventory(): InventoryBatch
+{
+    return new InventoryBatch(BatchCompleteness::Complete, new CarbonImmutable, 'fake:inventory', []);
+}
+
+function emptyCostFacts(): CostFactBatch
+{
+    return new CostFactBatch(BatchCompleteness::Complete, new CarbonImmutable, 'fake:cost-facts', []);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,10 +223,12 @@ it('re-syncs identical data without creating duplicates', function () {
     expect($second->status)->toBe(SyncStatus::Succeeded)
         ->and(Service::query()->count())->toBe(1)
         ->and(CostItem::query()->count())->toBe(1)
-        // The service row was not touched; the fact refreshed its observation.
+        // Nothing changed, so nothing was written: persistence skips the
+        // identical row and lifecycle writes the same values the fake's
+        // frozen batch carries.
         ->and(Service::query()->sole()->updated_at->equalTo($serviceUpdatedAt))->toBeTrue()
         ->and($second->counts['inventory'])->toBe(['seen' => 1, 'created' => 0, 'updated' => 0])
-        ->and($second->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 1, 'renewals' => 1, 'ended' => 0]);
+        ->and($second->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 0, 'renewals' => 1, 'ended' => 0]);
 
     expect($first->id)->not->toBe($second->id);
 });
@@ -342,9 +359,9 @@ it('keeps the last good data when the provider keeps failing transiently', funct
         ->and(Service::query()->count())->toBe(1)
         ->and(CostItem::query()->sole()->amount_minor)->toBe(1050)
         ->and($account->fresh()->last_success_at->equalTo($goodSuccessAt))->toBeTrue()
-        // The retry budget was spent, then the run failed with a warning.
+        // 1 call from the earlier good sync + the full retry budget of 4.
         ->and($adapter->inventoryCalls)->toBe(5)
-        ->and($run->summary['warnings'])->toBe(['429 too many requests']);
+        ->and($run->summary['warnings'])->toBe(['TransientProviderException: 429 too many requests (after 4 attempts)']);
 
     $stale = ProviderCapabilityState::query()->where('capability_key', 'inventory')->sole();
     expect($stale->healthy)->toBeFalse()
@@ -367,6 +384,8 @@ it('never writes cost data when the inventory phase fails', function () {
 
     expect($run->status)->toBe(SyncStatus::Failed)
         ->and($run->counts)->toBeNull()
+        // The only cost call is from the earlier good sync; the failed
+        // run never reached the cost phase.
         ->and($adapter->costCalls)->toBe(1)
         ->and(CostItem::query()->sole()->amount_minor)->toBe(1050);
 });
@@ -388,7 +407,7 @@ it('records a failed cost phase as partial while keeping fresh inventory', funct
         ->and(Service::query()->count())->toBe(1)
         ->and(CostItem::query()->count())->toBe(0)
         ->and($run->counts['cost_facts'] ?? null)->toBeNull()
-        ->and($run->summary['warnings'])->toBe(['timeout']);
+        ->and($run->summary['warnings'])->toBe(['TransientProviderException: timeout (after 4 attempts)']);
 
     $quotesState = ProviderCapabilityState::query()
         ->where('capability_key', 'renewal_quotes')->sole();
@@ -428,7 +447,7 @@ it('validates credentials only when they are unverified or changed', function ()
 
     $credential = $account->credentials()->sole();
     expect($credential->verified_at)->not->toBeNull()
-        ->and($credential->fingerprint)->toBe(hash('sha256', (string) json_encode($credential->payload)));
+        ->and($credential->fingerprint)->toBeString();
 
     // Same payload: no re-validation.
     runSync($account, $adapter);
@@ -555,7 +574,7 @@ it('abandons a stale active run so future syncs are not blocked', function () {
         'provider_account_id' => $account->id,
         'status' => SyncStatus::Queued,
     ]);
-    $stale->forceFill(['created_at' => now()->subSeconds((int) config('sync.lock_ttl_seconds'))->subMinute()])->save();
+    $stale->forceFill(['created_at' => now()->subSeconds((int) config('sync.stale_run_after_seconds'))->subMinute()])->save();
 
     $run = app(RequestSync::class)->request($account);
 
@@ -608,6 +627,269 @@ it('marks an unexpectedly failed job as a failed run', function () {
 });
 
 // ---------------------------------------------------------------------------
+// Review hardening: recovery paths, per-capability freshness, money edges
+// ---------------------------------------------------------------------------
+
+it('abandons a stale running run so a crashed worker cannot block the account', function () {
+    Queue::fake();
+
+    $account = ProviderAccount::factory()->create();
+
+    $stale = SyncRun::factory()->create([
+        'provider_account_id' => $account->id,
+        'status' => SyncStatus::Running,
+        'started_at' => now()->subMinute(),
+        'finished_at' => null,
+    ]);
+    $stale->forceFill(['created_at' => now()->subSeconds((int) config('sync.stale_run_after_seconds'))->subMinute()])->save();
+
+    $run = app(RequestSync::class)->request($account);
+
+    expect($run)->not->toBeNull()
+        ->and($stale->fresh()->status)->toBe(SyncStatus::Failed)
+        ->and($stale->fresh()->summary['warnings'])->toBe(['abandoned before completion']);
+});
+
+it('does not overwrite a finished run when the job fails late', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    (new SyncProviderAccount($run->id))->failed(new RuntimeException('late crash'));
+
+    $finished = $run->fresh();
+    expect($finished->status)->toBe(SyncStatus::Succeeded)
+        ->and($finished->counts)->not->toBeNull()
+        ->and($finished->summary)->toBeNull();
+});
+
+it('keeps per-capability freshness when one cost capability fails', function () {
+    $adapter = new FakeProviderAdapter(
+        capabilitySet: new CapabilitySet([
+            ProviderCapability::Inventory,
+            ProviderCapability::Subscriptions,
+            ProviderCapability::Usage,
+        ]),
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch(
+            [costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))],
+            BatchCompleteness::Complete,
+            capabilityCompleteness: [
+                'subscriptions' => BatchCompleteness::Complete,
+                'usage' => BatchCompleteness::Failed,
+            ],
+        ),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Partial)
+        ->and(CostItem::query()->count())->toBe(1);
+
+    $subscriptions = ProviderCapabilityState::query()->where('capability_key', 'subscriptions')->sole();
+    $usage = ProviderCapabilityState::query()->where('capability_key', 'usage')->sole();
+
+    expect($subscriptions->healthy)->toBeTrue()
+        ->and($subscriptions->last_observed_at)->not->toBeNull()
+        // A failed sub-capability never reads fresh, and an overall
+        // complete batch must not end charges on its behalf.
+        ->and($usage->healthy)->toBeFalse()
+        ->and($usage->last_observed_at)->toBeNull();
+});
+
+it('treats a declared but unsupported capability as non-degrading and unhealthy', function () {
+    $adapter = new FakeProviderAdapter(
+        capabilitySet: new CapabilitySet([
+            ProviderCapability::Inventory,
+            ProviderCapability::Subscriptions,
+            ProviderCapability::Usage,
+        ]),
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch(
+            [costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))],
+            BatchCompleteness::Complete,
+            capabilityCompleteness: [
+                'subscriptions' => BatchCompleteness::Complete,
+                'usage' => BatchCompleteness::Unsupported,
+            ],
+        ),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    $usage = ProviderCapabilityState::query()->where('capability_key', 'usage')->sole();
+
+    expect($run->status)->toBe(SyncStatus::Succeeded)
+        ->and($usage->supported)->toBeTrue()
+        ->and($usage->healthy)->toBeFalse()
+        ->and($usage->last_observed_at)->toBeNull();
+});
+
+it('rejects a batch whose completeness contradicts its content', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')], BatchCompleteness::Failed),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Failed)
+        ->and(Service::query()->count())->toBe(0)
+        ->and($run->summary['warnings'][0])->toContain('but carries items');
+});
+
+it('records a cost batch with duplicate source references as partial', function () {
+    $fact = costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'));
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([$fact, $fact]),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Partial)
+        ->and(CostItem::query()->count())->toBe(0)
+        ->and(Service::query()->count())->toBe(1)
+        ->and($run->summary['warnings'][0])->toContain('duplicate source reference');
+});
+
+it('stores an unknown amount when the provider reports no price', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], null)]),
+    );
+    $account = makeAccount($adapter);
+    $run = runSync($account, $adapter)->fresh();
+
+    $item = CostItem::query()->sole();
+    expect($run->status)->toBe(SyncStatus::Succeeded)
+        ->and($item->amount_state->value)->toBe('unknown')
+        ->and($item->amount_minor)->toBeNull()
+        ->and($item->currency)->toBeNull();
+});
+
+it('supersedes a known price when the provider stops reporting an amount', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    $adapter->costFactBatch = costBatch([costFact('srv-1-monthly', ['srv-1'], null)]);
+    runSync($account, $adapter);
+
+    $items = CostItem::query()->orderBy('id')->get();
+    expect($items)->toHaveCount(2);
+
+    $closed = $items->first();
+    expect($closed->amount_minor)->toBe(1050)
+        ->and($closed->valid_to)->not->toBeNull();
+
+    $open = $items->last();
+    expect($open->amount_state->value)->toBe('unknown')
+        ->and($open->amount_minor)->toBeNull()
+        ->and($open->valid_to)->toBeNull();
+});
+
+it('persists what a partial cost batch delivered without ending anything', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1'), inventoryItem('srv-2', 'storage')]),
+        costFactBatch: costBatch([
+            costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN')),
+            costFact('srv-2-monthly', ['srv-2'], Money::ofMinor(500, 'PLN')),
+        ]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    // The partial batch only saw the first charge again.
+    $adapter->costFactBatch = costBatch(
+        [costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))],
+        BatchCompleteness::Partial,
+    );
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Partial)
+        ->and(CostItem::query()->count())->toBe(2)
+        ->and($run->counts['cost_facts']['updated'])->toBe(1)
+        ->and($run->counts['cost_facts'])->not->toHaveKey('ended');
+
+    $absent = CostItem::query()->where('logical_charge_key', 'like', '%srv-2-monthly')->sole();
+    expect($absent->valid_to)->toBeNull();
+});
+
+it('never ends another account\'s charges when a complete batch is empty', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]),
+    );
+    $accountA = makeAccount($adapter);
+    runSync($accountA, $adapter);
+
+    // A second account of the same provider syncs an empty complete batch.
+    $accountB = ProviderAccount::factory()->create(['provider_key' => 'fakeprovider']);
+    ProviderCredential::factory()->create(['provider_account_id' => $accountB->id]);
+    $adapter->inventoryBatch = emptyInventory();
+    $adapter->costFactBatch = emptyCostFacts();
+    runSync($accountB, $adapter);
+
+    expect(CostItem::query()->sole()->valid_to)->toBeNull();
+});
+
+it('creates a new version when an ended charge reappears', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(10)->days();
+    $adapter->inventoryBatch = emptyInventory();
+    $adapter->costFactBatch = emptyCostFacts();
+    runSync($account, $adapter);
+
+    $this->travel(10)->days();
+    $tomorrow = now()->addDay()->startOfDay();
+    $adapter->inventoryBatch = inventoryBatch([inventoryItem('srv-1')]);
+    $adapter->costFactBatch = costBatch([
+        new CostFact(
+            sourceRef: 'srv-1-monthly',
+            serviceExternalIds: ['srv-1'],
+            sourceKind: SourceKind::Subscription,
+            chargeKind: ChargeKind::RecurringFixed,
+            period: Period::Monthly,
+            evidenceState: EvidenceState::Quote,
+            amount: Money::ofMinor(1200, 'PLN'),
+            validFrom: $tomorrow,
+        ),
+    ]);
+    $run = runSync($account, $adapter)->fresh();
+
+    $items = CostItem::query()->orderBy('id')->get();
+    expect($items)->toHaveCount(2);
+
+    $ended = $items->first();
+    expect($ended->amount_minor)->toBe(1050)
+        ->and($ended->valid_to)->not->toBeNull();
+
+    $open = $items->last();
+    expect($open->amount_minor)->toBe(1200)
+        ->and($open->valid_to)->toBeNull()
+        ->and($open->identity_key)->toBe($open->logical_charge_key.':from:'.$tomorrow->format('Y-m-d'));
+
+    // The middle run recorded the ending.
+    $middle = SyncRun::query()->orderBy('id')->get()->get(1);
+    expect($middle->counts['cost_facts']['ended'])->toBe(1);
+});
+
+// ---------------------------------------------------------------------------
 // Console entry point
 // ---------------------------------------------------------------------------
 
@@ -616,7 +898,7 @@ it('queues syncs for every enabled account from the console', function () {
     $adapter = new FakeProviderAdapter;
 
     $enabledA = makeAccount($adapter, ['display_name' => 'Alpha']);
-    $enabledB = makeAccount($adapter, ['display_name' => 'Beta', 'provider_key' => 'fakeprovider-b']);
+    $enabledB = makeAccount($adapter, ['display_name' => 'Beta', 'provider_key' => 'fakeprovider-b'], registerAs: null);
     ProviderAccount::factory()->create(['enabled' => false, 'display_name' => 'Gamma']);
 
     artisan('lafiel:sync')->assertSuccessful();
@@ -632,7 +914,7 @@ it('queues a sync for one account only', function () {
     $adapter = new FakeProviderAdapter;
 
     $target = makeAccount($adapter);
-    makeAccount($adapter);
+    makeAccount($adapter, registerAs: null);
 
     artisan('lafiel:sync', ['--account' => [$target->id]])->assertSuccessful();
 

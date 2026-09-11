@@ -24,6 +24,8 @@ final readonly class SyncContext
     /**
      * Stable, non-reversible fingerprint of the credential payload. Used
      * to detect changed credentials; never reversible to the secret.
+     * Keys are sorted first, so the fingerprint does not depend on the
+     * payload's key order.
      */
     public function credentialFingerprint(): ?string
     {
@@ -31,6 +33,23 @@ final readonly class SyncContext
             return null;
         }
 
-        return hash('sha256', (string) json_encode($this->credentials));
+        $payload = $this->credentials;
+        $this->sortKeys($payload);
+
+        return hash('sha256', (string) json_encode($payload, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $payload
+     */
+    private function sortKeys(array &$payload): void
+    {
+        ksort($payload);
+
+        foreach ($payload as &$value) {
+            if (is_array($value)) {
+                $this->sortKeys($value);
+            }
+        }
     }
 }

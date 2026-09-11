@@ -8,14 +8,21 @@ use Carbon\CarbonImmutable;
 
 /**
  * Marks abandoned runs failed. A queued or running run older than the
- * lock TTL has lost its worker (crash, deploy); without this, it would
- * block every future sync for the account forever.
+ * stale-run threshold has lost its worker (crash, deploy); without
+ * this, it would block every future sync for the account forever.
+ * The threshold is deliberately longer than the lock TTL: a live run
+ * whose lock lapsed cannot corrupt anything (the claim-guarded finish
+ * refuses to overwrite terminal states), it just slows recovery.
  */
 final class ReconcileStaleRuns
 {
+    /**
+     * @param  int|null  $exceptRunId  run to exempt, typically the caller's own in-flight run
+     */
     public function reconcile(int $accountId, ?int $exceptRunId = null): int
     {
-        $staleBefore = (new CarbonImmutable)->subSeconds((int) config('sync.lock_ttl_seconds', 600));
+        $staleBefore = (new CarbonImmutable)
+            ->subSeconds((int) config('sync.stale_run_after_seconds', 1800));
 
         return SyncRun::query()
             ->where('provider_account_id', $accountId)

@@ -7,13 +7,21 @@ return [
     | Per-account lock
     |--------------------------------------------------------------------------
     |
-    | One sync per provider account. The atomic lock guards the fetch and
-    | persist section; a queued or running sync run older than this TTL is
-    | treated as abandoned and reconciled by the next attempt.
+    | One sync per provider account. The atomic lock guards the whole run —
+    | credential validation, fetches, and persistence — and is not
+    | refreshed mid-run, so this TTL must exceed the slowest legitimate
+    | sync. A queued or running sync run older than stale_run_after_seconds
+    | (which must exceed the lock TTL) is treated as abandoned and
+    | reconciled by the next attempt.
     |
     */
 
     'lock_ttl_seconds' => 600,
+
+    // Runs older than this are abandoned even if their job never returned:
+    // generous, because a live run whose lock lapsed is protected by the
+    // claim-guarded finish, not by this threshold.
+    'stale_run_after_seconds' => 1800,
 
     /*
     |--------------------------------------------------------------------------

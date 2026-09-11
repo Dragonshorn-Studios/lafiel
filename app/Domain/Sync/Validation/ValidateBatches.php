@@ -26,6 +26,15 @@ final class ValidateBatches
     {
         $this->requireSourceRef($batch->sourceRef, 'inventory');
 
+        // A batch that saw nothing must carry nothing: the completeness
+        // flag drives run status, lifecycle, and charge ending, so a
+        // contradiction here would silently steer all three.
+        if (! $batch->completeness->producedUsableData() && $batch->items !== []) {
+            throw new InvalidBatchException(
+                "Inventory batch is marked [{$batch->completeness->value}] but carries items.",
+            );
+        }
+
         $seen = [];
 
         foreach ($batch->items as $item) {
@@ -60,14 +69,26 @@ final class ValidateBatches
     {
         $this->requireSourceRef($batch->sourceRef, 'cost facts');
 
+        if (! $batch->completeness->producedUsableData() && $batch->facts !== []) {
+            throw new InvalidBatchException(
+                "Cost fact batch is marked [{$batch->completeness->value}] but carries facts.",
+            );
+        }
+
         $known = [];
         foreach ($inventory->items as $item) {
             $known[$item->externalId] = true;
         }
 
+        $seenRefs = [];
+
         foreach ($batch->facts as $fact) {
             if ($fact->sourceRef === '') {
                 throw new InvalidBatchException('Cost fact batch contains a fact without a source reference.');
+            }
+
+            if (isset($seenRefs[$fact->sourceRef])) {
+                throw new InvalidBatchException("Cost fact batch contains duplicate source reference [{$fact->sourceRef}].");
             }
 
             if ($fact->serviceExternalIds === []) {
@@ -79,6 +100,8 @@ final class ValidateBatches
                     throw new InvalidBatchException("Cost fact [{$fact->sourceRef}] references service [{$externalId}] that is not part of this run's inventory.");
                 }
             }
+
+            $seenRefs[$fact->sourceRef] = true;
         }
     }
 

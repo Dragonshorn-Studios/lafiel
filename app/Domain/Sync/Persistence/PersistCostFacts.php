@@ -8,6 +8,7 @@ use App\Domain\Costs\Models\Renewal;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\Dtos\CostFact;
 use App\Domain\Providers\Dtos\CostFactBatch;
+use App\Domain\Sync\Exceptions\InvalidBatchException;
 use Carbon\CarbonImmutable;
 
 /**
@@ -78,10 +79,10 @@ final class PersistCostFacts
             $open->observed_at = $batch->observedAt;
             if ($open->isDirty()) {
                 $open->save();
+                $updated++;
             }
 
             $this->writeRenewalDate($open, $fact);
-            $updated++;
             $renewals += $fact->renewsAt !== null ? 1 : 0;
         }
 
@@ -90,8 +91,8 @@ final class PersistCostFacts
 
     /**
      * Amount, currency, period, and charge kind define the price. When
-     * any of them moves — or an unknown amount becomes known — the open
-     * version closes and a new one opens.
+     * any of them moves — including an amount becoming known or dropping
+     * back to unknown — the open version closes and a new one opens.
      */
     private function priceAffectingChange(CostItem $open, CostFact $fact): bool
     {
@@ -157,9 +158,13 @@ final class PersistCostFacts
         foreach ($fact->serviceExternalIds as $externalId) {
             $service = $servicesByExternalId[$externalId] ?? null;
 
-            if ($service !== null) {
-                $serviceIds[] = $service->id;
+            if ($service === null) {
+                // Validation already proved every referenced id is in this
+                // run's inventory; reaching here means that invariant broke.
+                throw new InvalidBatchException("Cost fact [{$fact->sourceRef}] references service [{$externalId}] that is not part of this run's inventory.");
             }
+
+            $serviceIds[] = $service->id;
         }
 
         if ($serviceIds !== []) {

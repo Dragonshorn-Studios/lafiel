@@ -35,6 +35,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->freezeTime();
+    $this->app->forgetInstance(AdapterRegistry::class);
 });
 
 // ---------------------------------------------------------------------------

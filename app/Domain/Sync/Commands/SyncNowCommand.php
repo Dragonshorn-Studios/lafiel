@@ -9,8 +9,8 @@ use Illuminate\Support\Collection;
 
 /**
  * Queues a provider sync for one or all enabled accounts. This is the
- * same path the future "sync now" button uses: one entry point, one
- * job, never a parallel run.
+ * same path a UI "sync now" action uses: one entry point, one job,
+ * never a parallel run.
  */
 final class SyncNowCommand extends Command
 {

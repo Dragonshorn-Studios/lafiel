@@ -11,8 +11,9 @@ use Illuminate\Database\UniqueConstraintViolationException;
 /**
  * The single entry point for starting a sync — "sync now", the console
  * command, and future schedules all go through here, so no path can
- * start a parallel run. The active-run check is best effort; the
- * partial unique index on sync_runs owns the invariant.
+ * start a parallel run. Enforcement is the partial unique index on
+ * sync_runs: a duplicate insert throws and returns null, and reconcile
+ * first clears stale runs so they cannot block the insert.
  */
 final class RequestSync
 {
