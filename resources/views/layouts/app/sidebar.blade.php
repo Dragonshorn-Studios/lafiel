@@ -120,8 +120,14 @@
                     <livewire:shell.sync-button class="max-lg:bg-transparent max-lg:px-2 max-lg:text-on-command max-lg:hover:bg-white/10 rounded-control bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover" />
 
                     {{-- Mobile only: the command rail's user menu covers desktop. --}}
-                    <flux:dropdown position="bottom" align="end" class="max-lg:hidden">
-                        <flux:button icon="user-circle" variant="ghost" class="size-9 text-ink-secondary" :aria-label="__('Account menu')" data-test="mobile-account-menu" />
+                    <flux:dropdown position="bottom" align="end" class="lg:hidden">
+                        <flux:profile
+                            :initials="auth()->user()->initials()"
+                            :chevron="false"
+                            class="text-on-command"
+                            :aria-label="__('Account menu')"
+                            data-test="mobile-account-menu"
+                        />
 
                         <flux:menu>
                             <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
