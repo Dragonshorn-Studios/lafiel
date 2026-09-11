@@ -20,7 +20,7 @@ composer setup    # composer install, .env + app key, migrations, npm install, n
 composer dev      # app server, queue worker, log tail, and Vite dev server
 ```
 
-A clean checkout boots on SQLite with no services: visiting the app redirects to the login screen. The first administrator is created through registration until the first-run setup flow (#2) lands. Run pending migrations with `php artisan migrate`.
+A clean checkout boots on SQLite with no services: visiting the app redirects to the first-run setup screen, where the one local administrator is created; afterwards it redirects to the login screen. Run pending migrations with `php artisan migrate`.
 
 ### Check commands
 
