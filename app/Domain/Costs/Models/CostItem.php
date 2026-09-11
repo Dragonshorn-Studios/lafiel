@@ -87,23 +87,13 @@ class CostItem extends Model
     }
 
     /**
-     * Whether this cost item applies on the given date. An ended item
-     * leaves future costs but stays in history.
-     */
-    public function appliesOn(CarbonImmutable $date): bool
-    {
-        if ($this->valid_from->startOfDay()->gt($date->startOfDay())) {
-            return false;
-        }
-
-        return $this->valid_to === null || $this->valid_to->startOfDay()->gte($date->startOfDay());
-    }
-
-    /**
      * Whether this item supersedes another with the same logical charge,
      * given the canonical evidence precedence: invoice actual > usage
      * actual > subscription or renewal quote > manual, with a conscious
-     * manual override winning only when explicitly enabled.
+     * manual override winning only when explicitly enabled. Actuals rank
+     * by their source; quotes and estimates rank together regardless of
+     * source, so an invoice-sourced quote never beats a usage actual.
+     * Ties break on observation time.
      */
     public function outranks(self $other): bool
     {
@@ -123,11 +113,20 @@ class CostItem extends Model
             return 4;
         }
 
+        if ($this->source_kind === SourceKind::Manual) {
+            return 0;
+        }
+
+        // Only actual evidence earns its source's full strength; quotes
+        // and estimates rank at the quote level whatever their source.
+        if ($this->evidence_state !== EvidenceState::Actual) {
+            return 1;
+        }
+
         return match ($this->source_kind) {
             SourceKind::Invoice => 3,
             SourceKind::Usage => 2,
             SourceKind::Subscription, SourceKind::RenewalQuote => 1,
-            SourceKind::Manual => 0,
         };
     }
 

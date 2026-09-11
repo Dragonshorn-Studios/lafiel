@@ -11,22 +11,38 @@ use InvalidArgumentException;
  */
 final readonly class Money
 {
-    public function __construct(public int $amountMinor, public string $currency)
+    /**
+     * Amounts are whole minor units; the working range ends where
+     * minor-unit arithmetic could overflow a 64-bit integer.
+     */
+    private const MAX_MINOR = PHP_INT_MAX / 100;
+
+    public readonly int $amountMinor;
+
+    public readonly string $currency;
+
+    public function __construct(int $amountMinor, string $currency)
     {
-        if (preg_match('/^[A-Z]{3}$/', $this->currency) !== 1) {
-            throw new InvalidArgumentException("Currency must be a 3-letter ISO-4217 code, got '{$this->currency}'.");
+        $currency = mb_strtoupper($currency);
+
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
+            throw new InvalidArgumentException("Currency must be a 3-letter ISO-4217 code, got '{$currency}'.");
         }
+
+        $this->amountMinor = $amountMinor;
+        $this->currency = $currency;
     }
 
     public static function ofMinor(int $amountMinor, string $currency): self
     {
-        return new self($amountMinor, mb_strtoupper($currency));
+        return new self($amountMinor, $currency);
     }
 
     /**
      * Build from a decimal string such as "187.42" or "-0.05".
      * At most two decimal places are accepted; input is never
-     * converted through a float.
+     * converted through a float and values that could overflow the
+     * integer minor-unit range are rejected.
      */
     public static function ofString(string $amount, string $currency): self
     {
@@ -34,11 +50,16 @@ final readonly class Money
             throw new InvalidArgumentException("Amount must be a decimal string with at most two fractional digits, got '{$amount}'.");
         }
 
-        $sign = $matches[1] === '-' ? -1 : 1;
         $whole = (int) $matches[2];
+
+        if ($whole > self::MAX_MINOR) {
+            throw new InvalidArgumentException("Amount '{$amount}' exceeds the supported range.");
+        }
+
+        $sign = $matches[1] === '-' ? -1 : 1;
         $fraction = $matches[3] ?? '';
 
-        return new self($sign * ($whole * 100 + (int) str_pad($fraction, 2, '0')), mb_strtoupper($currency));
+        return new self($sign * ($whole * 100 + (int) str_pad($fraction, 2, '0')), $currency);
     }
 
     public function add(self $other): self

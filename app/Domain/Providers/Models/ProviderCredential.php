@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property int $id
  * @property int $provider_account_id
- * @property string $payload
+ * @property array<string, mixed> $payload
  * @property int $schema_version
  * @property string|null $fingerprint
  * @property CarbonImmutable|null $verified_at

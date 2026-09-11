@@ -44,7 +44,7 @@ final readonly class Rational
     }
 
     /**
-     * Exact division by an integer factor, keeping an unreduced fraction
+     * Exact division by an integer factor, keeping an exact fraction
      * when the division is not even.
      */
     public function divide(int $divisor): self
