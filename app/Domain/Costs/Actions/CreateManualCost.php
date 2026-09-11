@@ -56,10 +56,13 @@ class CreateManualCost
                 'notes' => $validated['notes'],
             ]);
 
-            if ($validated['renews_at'] !== null) {
+            $renewsAt = $validated['renews_at']
+                ?? ($validated['auto_renew'] ? $validated['period']->advance($validFrom) : null);
+
+            if ($renewsAt !== null) {
                 Renewal::create([
                     'cost_item_id' => $costItem->id,
-                    'renews_at' => $validated['renews_at'],
+                    'renews_at' => $renewsAt,
                     'auto_renew' => $validated['auto_renew'],
                 ]);
             }

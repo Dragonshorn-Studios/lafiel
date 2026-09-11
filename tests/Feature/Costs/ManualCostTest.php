@@ -379,20 +379,43 @@ test('the costs table shows the nothing-here empty state', function () {
     costsPage()->assertSee(__('Nothing here'));
 });
 
-test('auto renew without a renewal date is not presented as persistable', function () {
+test('auto renew assumes the next occurrence one period after the start', function () {
+    $monthly = createCost(['valid_from' => '2026-08-01', 'auto_renew' => true]);
+    expect($monthly->renewal->renews_at->toDateString())->toBe('2026-09-01')
+        ->and($monthly->renewal->auto_renew)->toBeTrue();
+
+    $quarterly = createCost(['valid_from' => '2026-08-01', 'period' => 'quarterly', 'auto_renew' => true]);
+    expect($quarterly->renewal->renews_at->toDateString())->toBe('2026-11-01');
+
+    $annual = createCost(['valid_from' => '2026-08-01', 'period' => 'annual', 'auto_renew' => true]);
+    expect($annual->renewal->renews_at->toDateString())->toBe('2027-08-01');
+});
+
+test('a one time charge cannot auto renew', function () {
+    $item = createCost(['period' => 'one_time', 'auto_renew' => true]);
+
+    expect($item->renewal)->toBeNull();
+});
+
+test('an explicit renewal date always wins over the assumption', function () {
+    $item = createCost(['valid_from' => '2026-08-01', 'renews_at' => '2026-09-20', 'auto_renew' => true]);
+
+    expect($item->renewal->renews_at->toDateString())->toBe('2026-09-20');
+});
+
+test('the add cost panel shows the assumed renewal date while the box is checked', function () {
+    $assumed = now()->addMonth()->format('Y-m-d');
+
     costsPage()
         ->call('add')
         ->set('autoRenew', true)
-        ->assertSee(__('Auto-renew applies once a next renewal date is set.'));
+        ->assertSee(__('No date set — the next renewal is assumed to be :date, one period after the start.', ['date' => $assumed]), false);
+});
 
+test('an unknown period asks for an explicit renewal date', function () {
     costsPage()
-        ->set('name', 'No date service')
-        ->set('category', 'saas')
-        ->set('amount', '5.00')
-        ->set('currency', 'PLN')
-        ->set('period', 'monthly')
-        ->call('save')
-        ->assertHasNoErrors();
-
-    expect(Renewal::query()->count())->toBe(0);
+        ->call('add')
+        ->set('period', 'unknown')
+        ->set('autoRenew', true)
+        ->assertSee(__('This period cannot renew automatically — set a renewal date instead.'));
 });

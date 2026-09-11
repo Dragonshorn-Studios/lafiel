@@ -6,6 +6,7 @@ use App\Domain\Costs\Actions\UpdateManualCost;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Inventory\Models\Service;
+use Carbon\CarbonImmutable;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -169,6 +170,21 @@ new #[Title('Costs')] class extends Component {
         $this->loadedPrice = ['amount' => '', 'currency' => 'PLN', 'period' => 'monthly'];
     }
 
+    /**
+     * The renewal date auto-renew assumes when none is set: one period
+     * after the charge's start. Null when the period cannot renew.
+     */
+    public function assumedRenewalDate(): ?string
+    {
+        if ($this->renewsAt !== '' || ! $this->autoRenew) {
+            return null;
+        }
+
+        $from = new CarbonImmutable($this->validFrom === '' ? now()->toDateString() : $this->validFrom);
+
+        return Period::from($this->period)->advance($from)?->format('Y-m-d');
+    }
+
     private function priceChanged(): bool
     {
         if ($this->unknownAmount) {
@@ -282,16 +298,18 @@ new #[Title('Costs')] class extends Component {
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="renewsAt" :label="__('Next renewal')" type="date" />
                 <div class="flex items-center">
-                    <flux:checkbox
-                        wire:model="autoRenew"
-                        :label="__('Auto-renew')"
-                        wire:disabled="renewsAt === ''"
-                    />
+                    <flux:checkbox wire:model="autoRenew" :label="__('Auto-renew')" />
                 </div>
             </div>
 
-            @if ($renewsAt === '')
-                <p class="text-xs text-ink-muted">{{ __('Auto-renew applies once a next renewal date is set.') }}</p>
+            @if ($renewsAt === '' && $autoRenew)
+                @if ($assumed = $this->assumedRenewalDate())
+                    <p class="text-xs text-ink-muted">
+                        {{ __('No date set — the next renewal is assumed to be :date, one period after the start.', ['date' => $assumed]) }}
+                    </p>
+                @else
+                    <p class="text-xs text-ink-muted">{{ __('This period cannot renew automatically — set a renewal date instead.') }}</p>
+                @endif
             @endif
 
             <flux:input wire:model="url" :label="__('URL')" type="url" />

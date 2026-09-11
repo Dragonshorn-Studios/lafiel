@@ -141,8 +141,13 @@ class UpdateManualCost
 
         $renewal = Renewal::query()->firstOrNew(['cost_item_id' => $open->id]);
 
-        if ($validated['renews_at'] !== null) {
-            $renewal->renews_at = $validated['renews_at'];
+        // Without an explicit date, auto-renew assumes the next
+        // occurrence one period after the charge's current start.
+        $renewsAt = $validated['renews_at']
+            ?? ($validated['auto_renew'] ? $validated['period']->advance($open->valid_from->startOfDay()) : null);
+
+        if ($renewsAt !== null) {
+            $renewal->renews_at = $renewsAt;
             $renewal->auto_renew = $validated['auto_renew'];
             $renewal->save();
 
