@@ -98,11 +98,11 @@
         </aside>
 
         <div class="flex min-h-screen flex-col lg:ps-60">
-            {{-- --- Top bar --- --}}
-            <header class="sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur">
+            {{-- --- Top bar: navy on mobile (mockup 05), paper on desktop --- --}}
+            <header class="sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur max-lg:border-line-command max-lg:bg-command max-lg:text-on-command">
                 <div class="flex h-14 items-center gap-3 px-4 sm:px-6">
-                    {{-- Mobile brand --}}
-                    <div class="flex items-center gap-2 bg-command text-on-command max-lg:absolute max-lg:inset-y-0 max-lg:start-0 max-lg:flex max-lg:h-14 max-lg:items-center max-lg:rounded-e-lg max-lg:px-4 lg:hidden">
+                    {{-- Brand: in flow on mobile (the rail wordmark covers desktop) --}}
+                    <div class="flex items-center gap-2 lg:hidden">
                         <span class="text-attention">
                             <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true">
                                 <path d="M12 2c.6 4.9 2.6 7.4 8 8-5.4.6-7.4 3.1-8 8-.6-4.9-2.6-7.4-8-8 5.4-.6 7.4-3.1 8-8Z" />
@@ -111,13 +111,13 @@
                         <span class="font-serif text-lg leading-none tracking-wide">Lafiel</span>
                     </div>
 
-                    <flux:heading class="whitespace-nowrap" level="2">{{ __('Fleet ledger') }}</flux:heading>
+                    <flux:heading class="hidden whitespace-nowrap lg:block" level="2">{{ __('Fleet ledger') }}</flux:heading>
 
                     <flux:spacer />
 
                     <livewire:shell.sync-state class="max-lg:hidden" />
 
-                    <livewire:shell.sync-button class="rounded-control bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover" />
+                    <livewire:shell.sync-button class="max-lg:bg-transparent max-lg:px-2 max-lg:text-on-command max-lg:hover:bg-white/10 rounded-control bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover" />
 
                     {{-- Mobile only: the command rail's user menu covers desktop. --}}
                     <flux:dropdown position="bottom" align="end" class="max-lg:hidden">

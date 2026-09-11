@@ -11,7 +11,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Costs')] class extends Component {
+new #[Title('Services')] class extends Component {
     public string $vendor = '';
 
     public string $name = '';
@@ -71,15 +71,14 @@ new #[Title('Costs')] class extends Component {
         $this->panelOpen = false;
     }
 
+    /**
+     * The Services table: every service with a roll-up of its open
+     * winning charges. The read model owns all equivalent math.
+     */
     #[Computed]
-    public function costs(): \Illuminate\Support\Collection
+    public function rows(): array
     {
-        return CostItem::query()
-            ->where('source_kind', 'manual')
-            ->whereNull('valid_to')
-            ->with(['services', 'renewal'])
-            ->orderBy('id')
-            ->get();
+        return app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
     }
 
     #[Computed]
@@ -185,6 +184,14 @@ new #[Title('Costs')] class extends Component {
         return Period::from($this->period)->advance($from)?->format('Y-m-d');
     }
 
+    /**
+     * Present the row's rounded-once monthly equivalent.
+     */
+    public function major(\App\Domain\Inventory\ServiceLedgerRow $row): string
+    {
+        return \App\Domain\Support\ValueObjects\Money::ofMinor((int) $row->monthlyMinor, (string) $row->monthlyCurrency)->majorAmount();
+    }
+
     private function priceChanged(): bool
     {
         if ($this->unknownAmount) {
@@ -198,14 +205,14 @@ new #[Title('Costs')] class extends Component {
 }; ?>
 <section class="w-full space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
-        <flux:heading size="h1">{{ __('Costs') }}</flux:heading>
+        <flux:heading size="h1">{{ __('Services') }}</flux:heading>
 
         <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
             {{ __('Add cost') }}
         </flux:button>
     </div>
 
-    @if ($this->costs->isEmpty())
+    @if ($this->rows === [])
         <x-imperial.empty-state :hint="__('Manual charges and provider services will appear here once added.')">
             <flux:button variant="primary" wire:click="add" class="mt-2">
                 {{ __('Add cost') }}
@@ -214,39 +221,92 @@ new #[Title('Costs')] class extends Component {
     @else
     <flux:table>
         <flux:table.columns>
+            <flux:table.column>{{ __('Provider') }}</flux:table.column>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
-            <flux:table.column>{{ __('Vendor') }}</flux:table.column>
-            <flux:table.column>{{ __('Amount') }}</flux:table.column>
-            <flux:table.column>{{ __('Period') }}</flux:table.column>
-            <flux:table.column>{{ __('Renews') }}</flux:table.column>
+            <flux:table.column>{{ __('Category') }}</flux:table.column>
+            <flux:table.column>{{ __('Billing') }}</flux:table.column>
+            <flux:table.column>{{ __('Source amount') }}</flux:table.column>
+            <flux:table.column>{{ __('Monthly equivalent') }}</flux:table.column>
+            <flux:table.column>{{ __('Renewal') }}</flux:table.column>
+            <flux:table.column>{{ __('Freshness') }}</flux:table.column>
             <flux:table.column>{{ __('Actions') }}</flux:table.column>
         </flux:table.columns>
 
         <flux:table.rows>
-            @foreach ($this->costs as $item)
-                @php($service = $item->services->first())
-                <flux:table.row :key="$item->id">
-                    <flux:table.cell>{{ $service?->name }}<span class="block text-xs text-zinc-500">{{ $service?->category }}</span></flux:table.cell>
-                    <flux:table.cell>{{ $service?->vendor }}</flux:table.cell>
+            @foreach ($this->rows as $row)
+                <flux:table.row :key="$row->service->id">
+                    <flux:table.cell>{{ $row->provider }}</flux:table.cell>
+
                     <flux:table.cell>
-                        @if ($item->amount_state->value === 'unknown')
+                        <flux:link :href="route('services.show', $row->service)" wire:navigate class="font-medium">
+                            {{ $row->service->name }}
+                        </flux:link>
+                        <span class="flex flex-wrap gap-1 pt-1">
+                            @if ($row->package)
+                                <flux:badge size="sm" variant="info">{{ __('package') }}</flux:badge>
+                            @endif
+                            @if ($row->unknownCount > 0)
+                                <flux:badge size="sm">{{ __(':n unknown', ['n' => $row->unknownCount]) }}</flux:badge>
+                            @endif
+                            @if ($row->staleCount > 0)
+                                <flux:badge size="sm" variant="warning">{{ __('stale') }}</flux:badge>
+                            @endif
+                        </span>
+                    </flux:table.cell>
+
+                    <flux:table.cell>{{ $row->service->category }}</flux:table.cell>
+
+                    <flux:table.cell>
+                        {{ $row->billing ?? '—' }}
+                        @if ($row->chargeCount > 1)
+                            <span class="block text-xs text-ink-muted">{{ __(':n charges', ['n' => $row->chargeCount]) }}</span>
+                        @endif
+                    </flux:table.cell>
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->sourceAmount === null)
                             {{ __('unknown') }}
                         @else
-                            {{ $item->money()?->majorAmount() }} {{ $item->currency }}
+                            {{ $row->sourceAmount->majorAmount() }} {{ $row->sourceAmount->currency }}
                         @endif
                     </flux:table.cell>
-                    <flux:table.cell>{{ $item->period->value }}</flux:table.cell>
-                    <flux:table.cell>
-                        @if ($item->renewal)
-                            {{ $item->renewal->renews_at->format('Y-m-d') }}
-                            {{ $item->renewal->auto_renew ? __('(auto)') : '' }}
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->monthlyMinor === null)
+                            {{ __('unknown') }}
+                        @else
+                            {{ $this->major($row) }} {{ $row->monthlyCurrency }}
                         @endif
                     </flux:table.cell>
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->renewsAt !== null)
+                            {{ $row->renewsAt->format('Y-m-d') }}
+                            {{ $row->autoRenew ? __('(auto)') : '' }}
+                        @else
+                            —
+                        @endif
+                    </flux:table.cell>
+
                     <flux:table.cell>
-                        <flux:button size="xs" wire:click="edit({{ $item->id }})">{{ __('Edit') }}</flux:button>
-                        <flux:button size="xs" variant="danger" wire:click="end({{ $item->id }})" wire:confirm="{{ __('End this cost?') }}">
-                            {{ __('End') }}
-                        </flux:button>
+                        @if ($row->freshness() === 'stale')
+                            <flux:badge size="sm" variant="warning">{{ __('Stale') }}</flux:badge>
+                        @elseif ($row->freshness() === 'manual')
+                            {{ __('Manual') }}
+                        @else
+                            {{ __('Synced') }}
+                        @endif
+                    </flux:table.cell>
+
+                    <flux:table.cell>
+                        @if ($row->manualChargeId !== null)
+                            <flux:button size="xs" wire:click="edit({{ $row->manualChargeId }})">{{ __('Edit') }}</flux:button>
+                            <flux:button size="xs" variant="danger" wire:click="end({{ $row->manualChargeId }})" wire:confirm="{{ __('End this cost?') }}">
+                                {{ __('End') }}
+                            </flux:button>
+                        @else
+                            <flux:link :href="route('services.show', $row->service)" wire:navigate size="sm">{{ __('Details') }}</flux:link>
+                        @endif
                     </flux:table.cell>
                 </flux:table.row>
             @endforeach

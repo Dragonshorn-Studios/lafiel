@@ -70,7 +70,9 @@ new class extends Component {
     type="button"
     wire:click="syncNow"
     data-test="sync-now-button"
-    {{ $attributes->merge(['class' => 'cursor-pointer']) }}
+    {{ $attributes->merge(['class' => 'inline-flex cursor-pointer items-center gap-2']) }}
 >
-    {{ __('Sync now') }}
+    <flux:icon.arrow-path class="size-5 lg:hidden" aria-hidden="true" />
+    <span class="hidden lg:inline">{{ __('Sync now') }}</span>
+    <span class="lg:hidden sr-only">{{ __('Sync now') }}</span>
 </button>

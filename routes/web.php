@@ -17,6 +17,8 @@ Route::middleware(['auth'])->group(function () {
     Route::livewire('costs/renewals', 'pages::costs.renewals')->name('costs.renewals');
 
     Route::livewire('providers', 'pages::providers.index')->name('providers.index');
+
+    Route::livewire('services/{service}', 'pages::services.show')->name('services.show');
 });
 
 require __DIR__.'/settings.php';

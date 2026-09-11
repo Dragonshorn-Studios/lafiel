@@ -30,6 +30,19 @@ new #[Title('Providers')] class extends Component {
     public bool $panelOpen = false;
 
     /**
+     * Display labels for the known provider capabilities, in rail order.
+     *
+     * @var array<string, string>
+     */
+    public array $capabilityLabels = [
+        'inventory' => 'Inventory',
+        'renewal_quotes' => 'Renewals',
+        'subscriptions' => 'Subscriptions',
+        'usage' => 'Usage',
+        'invoices' => 'Invoices',
+    ];
+
+    /**
      * Outcome of the last connection test per account, kept until the
      * next navigation: status plus the sanitized provider message.
      *
@@ -176,7 +189,7 @@ new #[Title('Providers')] class extends Component {
     {
         return ProviderAccount::query()
             ->orderBy('display_name')
-            ->with(['credentials', 'latestSyncRun'])
+            ->with(['credentials', 'latestSyncRun', 'capabilityStates'])
             ->get();
     }
 
@@ -291,6 +304,22 @@ new #[Title('Providers')] class extends Component {
                             · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
                         @endif
                     </p>
+
+                    {{-- Health per capability (docs/design-system.md, Providers) --}}
+                    <div class="mt-3 flex flex-wrap gap-1.5" data-test="capability-health">
+                        @foreach ($capabilityLabels as $value => $label)
+                            @php($state = $account->capabilityStates->firstWhere('capability_key', $value))
+                            <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs
+                                {{ $state === null || ! $state->supported
+                                    ? 'border-line text-ink-muted'
+                                    : ($state->healthy ? 'border-success/40 bg-success/10 text-success' : 'border-attention/40 bg-attention/10 text-attention') }}"
+                                @if ($state?->last_observed_at !== null) title="{{ __('Last observed :at', ['at' => $state->last_observed_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}" @endif
+                            >
+                                <span class="size-1.5 rounded-full {{ $state === null || ! $state->supported ? 'bg-ink-muted/50' : ($state->healthy ? 'bg-success' : 'bg-attention') }}"></span>
+                                {{ $label }}
+                            </span>
+                        @endforeach
+                    </div>
 
                     @if ($check !== null)
                         <p class="mt-2 text-sm" data-test="connection-check">

@@ -32,16 +32,7 @@ class CostProjector
 {
     public function project(CarbonImmutable $onDate): ProjectionResult
     {
-        $items = CostItem::query()
-            ->with('services.providerAccount')
-            ->whereDate('valid_from', '<=', $onDate)
-            ->where(fn ($query) => $query
-                ->whereNull('valid_to')
-                ->orWhereDate('valid_to', '>=', $onDate))
-            ->orderBy('id')
-            ->get();
-
-        $winners = $this->pickWinners($items);
+        $winners = $this->winners($onDate);
 
         /** @var array<string, array{monthly: Rational, annual: Rational, oneTime: int, lines: list<ChargeLine>}> $accumulators */
         $accumulators = [];
@@ -132,6 +123,38 @@ class CostProjector
             sharedUnallocatedCount: $sharedUnallocatedCount,
             oneTimeCount: $oneTimeCount,
         );
+    }
+
+    /**
+     * The winning cost item per logical charge that is open on the given
+     * date — including unknown-amount charges, which project() only
+     * counts. Read models build service-centric views on top of this
+     * instead of re-implementing evidence selection.
+     *
+     * @return array<string, CostItem>
+     */
+    public function winners(CarbonImmutable $onDate): array
+    {
+        $items = CostItem::query()
+            ->with('services.providerAccount')
+            ->whereDate('valid_from', '<=', $onDate)
+            ->where(fn ($query) => $query
+                ->whereNull('valid_to')
+                ->orWhereDate('valid_to', '>=', $onDate))
+            ->orderBy('id')
+            ->get();
+
+        return $this->pickWinners($items);
+    }
+
+    /**
+     * Stale evidence: synced observations older than the freshness window.
+     * Manual evidence has no provider observation behind it and never
+     * goes stale.
+     */
+    public function staleFor(CostItem $item, CarbonImmutable $onDate): bool
+    {
+        return $this->isStale($item, $onDate);
     }
 
     /**
