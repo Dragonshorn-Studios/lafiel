@@ -28,19 +28,28 @@ final class SdkOvhApi implements OvhApi
     {
         try {
             return $this->api->get($path, $parameters === [] ? null : $parameters);
-        } catch (ClientException $exception) {
-            throw $this->clientException($path, $exception);
-        } catch (ConnectException) {
-            throw new TransientProviderException("OVH API could not be reached for [{$path}].");
-        } catch (ServerException $exception) {
-            throw new TransientProviderException("OVH API server error for [{$path}] (HTTP {$exception->getResponse()?->getStatusCode()}).");
-        } catch (GuzzleException) {
+        } catch (RequestException $exception) {
+            // The SDK's docblock only admits ClientException, but its
+            // Guzzle handler also surfaces 5xx and other response
+            // errors as RequestException subtypes.
+            throw $this->requestException($path, $exception);
+        } catch (GuzzleException $exception) {
+            // Connection failures arrive as ConnectException, a sibling
+            // of RequestException under GuzzleException.
+            if ($exception instanceof ConnectException) {
+                throw new TransientProviderException("OVH API could not be reached for [{$path}].");
+            }
+
             throw new TransientProviderException("OVH API request failed for [{$path}].");
         }
     }
 
-    private function clientException(string $path, RequestException $exception): InvalidCredentialsException|TransientProviderException
+    private function requestException(string $path, RequestException $exception): InvalidCredentialsException|TransientProviderException
     {
+        if ($exception instanceof ServerException) {
+            return new TransientProviderException("OVH API server error for [{$path}] (HTTP {$exception->getResponse()->getStatusCode()}).");
+        }
+
         $status = $exception->getResponse()?->getStatusCode() ?? 0;
 
         if (in_array($status, [401, 403], true)) {
