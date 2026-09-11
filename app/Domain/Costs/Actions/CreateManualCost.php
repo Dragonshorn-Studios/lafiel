@@ -6,6 +6,7 @@ use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\Renewal;
+use App\Domain\History\TakeSnapshot;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Support\ValueObjects\Money;
@@ -35,7 +36,7 @@ class CreateManualCost
     {
         $validated = $this->validate($input);
 
-        return DB::transaction(function () use ($validated): CostItem {
+        $costItem = DB::transaction(function () use ($validated): CostItem {
             $service = $this->resolveService($validated);
             $validFrom = $validated['valid_from']->startOfDay();
             $chargeKey = sprintf('manual:charge:%s', Str::uuid()->toString());
@@ -69,6 +70,11 @@ class CreateManualCost
 
             return $costItem;
         });
+
+        // A material input changed: capture (the checksum dedupes).
+        app(TakeSnapshot::class)->capture();
+
+        return $costItem;
     }
 
     /**

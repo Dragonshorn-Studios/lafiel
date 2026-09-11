@@ -3,6 +3,7 @@
 namespace App\Domain\Costs\Actions;
 
 use App\Domain\Costs\Models\CostItem;
+use App\Domain\History\TakeSnapshot;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -25,15 +26,21 @@ class EndManualCost
             'valid_to' => ['nullable', 'date'],
         ])->validate();
 
-        DB::transaction(function () use ($costItem, $validated): void {
+        $ended = DB::transaction(function () use ($costItem, $validated): bool {
             if ($costItem->valid_to !== null) {
-                return;
+                return false;
             }
 
             $costItem->valid_to = isset($validated['valid_to'])
                 ? new CarbonImmutable($validated['valid_to'])->endOfDay()
                 : new CarbonImmutable()->endOfDay();
             $costItem->save();
+
+            return true;
         });
+
+        if ($ended) {
+            app(TakeSnapshot::class)->capture();
+        }
     }
 }

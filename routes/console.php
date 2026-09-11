@@ -1,8 +1,7 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+// Replayable daily snapshots (issue #13); a running scheduler picks
+// this up, and material changes snapshot immediately regardless.
+Schedule::command('lafiel:snapshot')->daily()->at('23:40');

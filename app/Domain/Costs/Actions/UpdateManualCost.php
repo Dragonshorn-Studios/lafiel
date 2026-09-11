@@ -6,6 +6,7 @@ use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\Renewal;
+use App\Domain\History\TakeSnapshot;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
@@ -31,7 +32,7 @@ class UpdateManualCost
     {
         $validated = $this->validate($input);
 
-        return DB::transaction(function () use ($requested, $validated): CostItem {
+        $costItem = DB::transaction(function () use ($requested, $validated): CostItem {
             $open = $this->openVersion($requested);
             $service = $open->services()->first();
 
@@ -64,6 +65,11 @@ class UpdateManualCost
 
             return $costItem;
         });
+
+        // A material input changed: capture (the checksum dedupes).
+        app(TakeSnapshot::class)->capture();
+
+        return $costItem;
     }
 
     /**

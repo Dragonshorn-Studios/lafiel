@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\History\Commands\TakeSnapshotCommand;
 use App\Domain\Sync\Commands\SyncNowCommand;
 use App\Http\Middleware\EnsureInstalled;
 use Illuminate\Foundation\Application;
@@ -15,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands([
         SyncNowCommand::class,
+        TakeSnapshotCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [

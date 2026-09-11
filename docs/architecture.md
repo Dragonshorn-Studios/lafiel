@@ -107,6 +107,14 @@ Normalization is a calculation, not evidence. Ambiguity is an allocation state, 
 
 `cost_snapshots` stores captured totals, completeness counters, calculation version, the FX values used, and a replayable breakdown or input checksum. A snapshot is historical output, not a second source of truth.
 
+#### Snapshot capture and rebuild
+
+- Snapshots are written by `lafiel:snapshot` (scheduled daily) and automatically after every material input change: manual cost create/update/end and each successful or partial provider sync. Failed runs change nothing and write nothing.
+- There is exactly **one snapshot row per date**. A later capture on the same date updates that row only when the material inputs or the calculation version changed; otherwise the capture is a no-op, so identical runs add no noise. The change detector is `input_checksum`, a SHA-256 over the ordered cost items, coverage pairs, and renewals — evidence observation times and timestamps excluded, since a no-change re-sync must not read as a material change.
+- `completeness` records how complete the sum was at capture (priced, unknown, estimate, stale, shared unallocated, one-time counts); `breakdown` stores every winning charge line. `fx_used` stays `null` until a real FX source exists (v1 has none) and is never rewritten after capture.
+- **Rebuild:** snapshots recompute from `cost_items` history, which preserves past prices as closed versions. To rebuild, replay the command over the range: `lafiel:snapshot --date=YYYY-MM-DD` for each date (or a loop). The projection for a past date uses the same validity windows the live projection uses, so a rebuild reproduces what that date's sum was — per the stored `calculation_version`. Bump `costs.calculation_version` whenever the algorithm's meaning changes so rebuilt snapshots remain comparable.
+- The Overview chart recomputes past months from `cost_items` on purpose; it does not read snapshots. Snapshots are the audit/replay record.
+
 ## Money, periods, and FX
 
 - Store money as integer minor units plus ISO-4217 currency. Never use binary floats.
