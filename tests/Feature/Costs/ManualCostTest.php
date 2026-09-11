@@ -348,3 +348,33 @@ test('a non-ISO currency string is a validation error, not a crash', function ()
 
     expect(CostItem::query()->count())->toEqual(0);
 });
+
+test('add cost opens the slide-over panel and saving closes it', function () {
+    $page = costsPage()->call('add');
+
+    $page->assertSet('panelOpen', true);
+
+    $page->set('name', 'Panel service')
+        ->set('category', 'saas')
+        ->set('amount', '12.00')
+        ->set('currency', 'PLN')
+        ->set('period', 'monthly')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('panelOpen', false);
+
+    expect(CostItem::query()->where('source_kind', 'manual')->count())->toBe(1);
+});
+
+test('a failed save keeps the slide-over open', function () {
+    costsPage()
+        ->call('add')
+        ->set('name', '')
+        ->call('save')
+        ->assertHasErrors()
+        ->assertSet('panelOpen', true);
+});
+
+test('the costs table shows the nothing-here empty state', function () {
+    costsPage()->assertSee(__('Nothing here'));
+});

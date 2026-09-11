@@ -41,6 +41,8 @@ new #[Title('Costs')] class extends Component {
 
     public ?int $editingCostItemId = null;
 
+    public bool $panelOpen = false;
+
     /**
      * The initial price fields, to detect a price change on save.
      *
@@ -51,6 +53,21 @@ new #[Title('Costs')] class extends Component {
     public function mount(): void
     {
         $this->validFrom = now()->format('Y-m-d');
+    }
+
+    /**
+     * Open the slide-over with a clean form for a new charge.
+     */
+    public function add(): void
+    {
+        $this->resetForm();
+        $this->panelOpen = true;
+    }
+
+    public function closePanel(): void
+    {
+        $this->resetForm();
+        $this->panelOpen = false;
     }
 
     #[Computed]
@@ -101,6 +118,7 @@ new #[Title('Costs')] class extends Component {
         }
 
         $this->resetForm();
+        $this->panelOpen = false;
     }
 
     public function edit(int $costItemId): void
@@ -132,6 +150,7 @@ new #[Title('Costs')] class extends Component {
         $this->url = (string) $service?->url;
         $this->notes = (string) $open->notes;
         $this->loadedPrice = ['amount' => $this->amount, 'currency' => $this->currency, 'period' => $this->period];
+        $this->panelOpen = true;
     }
 
     public function end(int $costItemId): void
@@ -162,13 +181,21 @@ new #[Title('Costs')] class extends Component {
     }
 }; ?>
 <section class="w-full space-y-6">
-    <flux:heading size="h1">{{ __('Costs') }}</flux:heading>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <flux:heading size="h1">{{ __('Costs') }}</flux:heading>
 
-    <div class="flex gap-2 text-sm">
-        <flux:link :href="route('costs.renewals')">{{ __('Renewals') }}</flux:link>
-        <flux:link :href="route('costs.history')">{{ __('History') }}</flux:link>
+        <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
+            {{ __('Add cost') }}
+        </flux:button>
     </div>
 
+    @if ($this->costs->isEmpty())
+        <x-imperial.empty-state :hint="__('Manual charges and provider services will appear here once added.')">
+            <flux:button variant="primary" wire:click="add" class="mt-2">
+                {{ __('Add cost') }}
+            </flux:button>
+        </x-imperial.empty-state>
+    @else
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
@@ -209,9 +236,11 @@ new #[Title('Costs')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    @endif
 
-    <flux:card class="max-w-2xl">
-        <flux:heading class="mb-4">
+    {{-- The add/edit form lives in a right-side pop-out panel. --}}
+    <flux:modal name="cost-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-xl sm:max-w-2xl">
+        <flux:heading size="lg" class="mb-6">
             {{ $editingCostItemId !== null ? __('Edit cost') : __('Add manual cost') }}
         </flux:heading>
 
@@ -256,12 +285,10 @@ new #[Title('Costs')] class extends Component {
             <flux:input wire:model="url" :label="__('URL')" type="url" />
             <flux:textarea wire:model="notes" :label="__('Notes')" />
 
-            <div class="flex gap-2">
+            <div class="flex gap-2 pt-2">
                 <flux:button variant="primary" type="submit" data-test="save-cost">{{ __('Save') }}</flux:button>
-                @if ($editingCostItemId !== null)
-                    <flux:button type="button" wire:click="resetForm">{{ __('Cancel') }}</flux:button>
-                @endif
+                <flux:button type="button" wire:click="closePanel">{{ __('Cancel') }}</flux:button>
             </div>
         </form>
-    </flux:card>
+    </flux:modal>
 </section>

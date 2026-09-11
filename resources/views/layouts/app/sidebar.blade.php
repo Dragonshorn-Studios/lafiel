@@ -25,7 +25,6 @@
                     'costs.renewals' => ['label' => __('Renewals'), 'icon' => 'arrow-path'],
                     'costs.history' => ['label' => __('History'), 'icon' => 'clock'],
                     'providers.index' => ['label' => __('Providers'), 'icon' => 'users'],
-                    'profile.edit' => ['label' => __('Settings'), 'icon' => 'cog'],
                 ] as $route => $item)
                     <a
                         href="{{ route($route) }}"
@@ -72,6 +71,14 @@
 
                             <flux:menu.separator />
 
+                            <flux:menu.radio.group>
+                                <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate data-test="user-menu-settings">
+                                    {{ __('Settings') }}
+                                </flux:menu.item>
+                            </flux:menu.radio.group>
+
+                            <flux:menu.separator />
+
                             <form method="POST" action="{{ route('logout') }}" class="w-full">
                                 @csrf
                                 <flux:menu.item
@@ -111,6 +118,42 @@
                     <livewire:shell.sync-state class="max-lg:hidden" />
 
                     <livewire:shell.sync-button class="rounded-control bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover" />
+
+                    <flux:dropdown position="bottom" align="end">
+                        <flux:button icon="user-circle" variant="ghost" class="size-9 text-ink-secondary" :aria-label="__('Account menu')" data-test="mobile-account-menu" />
+
+                        <flux:menu>
+                            <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
+                                <flux:avatar :name="auth()->user()->name" :initials="auth()->user()->initials()" />
+                                <div class="grid flex-1 text-start text-sm leading-tight">
+                                    <flux:heading class="truncate">{{ auth()->user()->name }}</flux:heading>
+                                    <flux:text class="truncate">{{ auth()->user()->email }}</flux:text>
+                                </div>
+                            </div>
+
+                            <flux:menu.separator />
+
+                            <flux:menu.radio.group>
+                                <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
+                                    {{ __('Settings') }}
+                                </flux:menu.item>
+                            </flux:menu.radio.group>
+
+                            <flux:menu.separator />
+
+                            <form method="POST" action="{{ route('logout') }}" class="w-full">
+                                @csrf
+                                <flux:menu.item
+                                    as="button"
+                                    type="submit"
+                                    icon="arrow-right-start-on-rectangle"
+                                    class="w-full cursor-pointer"
+                                >
+                                    {{ __('Log out') }}
+                                </flux:menu.item>
+                            </form>
+                        </flux:menu>
+                    </flux:dropdown>
                 </div>
             </header>
 
@@ -129,7 +172,7 @@
                     'overview' => ['label' => __('Overview'), 'icon' => 'home'],
                     'costs.index' => ['label' => __('Services'), 'icon' => 'server-stack'],
                     'costs.renewals' => ['label' => __('Renewals'), 'icon' => 'arrow-path'],
-                    'profile.edit' => ['label' => __('More'), 'icon' => 'ellipsis-horizontal'],
+                    'providers.index' => ['label' => __('Providers'), 'icon' => 'users'],
                 ] as $route => $item)
                     <a
                         href="{{ route($route) }}"

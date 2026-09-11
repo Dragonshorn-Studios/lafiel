@@ -42,7 +42,7 @@ function fakeOvhClient(FakeOvhApi $api): void
 
 function providersPage(): Testable
 {
-    return Livewire::test('pages::settings.providers');
+    return Livewire::test('pages::providers.index');
 }
 
 it('lists connected accounts with their verification state', function () {
@@ -223,4 +223,49 @@ it('refuses a second sync while a run is still active', function () {
     providersPage()->call('syncNow', $account->id);
 
     expect(SyncRun::query()->where('provider_account_id', $account->id)->count())->toBe(1);
+});
+
+it('opens the add-provider slide-over with a clean form', function () {
+    providersPage()
+        ->call('add')
+        ->assertSet('panelOpen', true)
+        ->assertSet('displayName', '')
+        ->assertSee(__('Connect OVHcloud'));
+});
+
+it('closes the slide-over after connecting an account', function () {
+    providersPage()
+        ->call('add')
+        ->set('displayName', 'OVH main')
+        ->set('endpoint', 'ovh-eu')
+        ->set('applicationKey', ovhPayload()['application_key'])
+        ->set('applicationSecret', ovhPayload()['application_secret'])
+        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->call('connect')
+        ->assertHasNoErrors()
+        ->assertSet('panelOpen', false);
+});
+
+it('opens the slide-over when editing credentials and closes it on save', function () {
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'ovh']);
+
+    providersPage()
+        ->call('edit', $account->id)
+        ->assertSet('panelOpen', true)
+        ->set('displayName', 'OVH renamed')
+        ->set('endpoint', 'ovh-ca')
+        ->set('applicationKey', ovhPayload()['application_key'])
+        ->set('applicationSecret', ovhPayload()['application_secret'])
+        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->call('update')
+        ->assertHasNoErrors()
+        ->assertSet('panelOpen', false);
+
+    expect($account->refresh()->display_name)->toBe('OVH renamed');
+});
+
+it('shows the nothing-here empty state without accounts', function () {
+    providersPage()->assertSee(__('Nothing here'));
 });
