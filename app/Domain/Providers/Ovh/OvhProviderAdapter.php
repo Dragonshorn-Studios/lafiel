@@ -139,7 +139,9 @@ final class OvhProviderAdapter implements ProviderAdapter
             }
         }
 
-        $fallback = explode('/', trim($route, '/'))[0] ?? '';
+        // explode always yields at least one segment; an empty route
+        // yields an empty one, which maps to the unknown type below.
+        $fallback = explode('/', trim($route, '/'))[0];
 
         return [
             'other',
