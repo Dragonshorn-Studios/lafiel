@@ -10,6 +10,7 @@ use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Ovh\BuildOvhApi;
 use App\Domain\Providers\Ovh\OvhCredentialSchema;
 use App\Domain\Providers\Ovh\TestOvhConnection;
+use App\Domain\Sync\Actions\RequestSync;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -123,6 +124,31 @@ new #[Title('Provider settings')] class extends Component {
         app(SetProviderAccountEnabled::class)->set($account, ! $account->enabled);
     }
 
+    /**
+     * Queue one sync through the shared entry point, so the UI can
+     * never start a parallel run. Only enabled accounts sync.
+     */
+    public function syncNow(int $accountId): void
+    {
+        $account = $this->account($accountId);
+
+        if (! $account->enabled) {
+            Flux::toast(variant: 'warning', text: __('Sync is paused for this account.'));
+
+            return;
+        }
+
+        $run = app(RequestSync::class)->request($account, 'manual');
+
+        if ($run === null) {
+            Flux::toast(variant: 'info', text: __('A sync is already running for this account.'));
+
+            return;
+        }
+
+        Flux::toast(variant: 'success', text: __('Sync queued.'));
+    }
+
     public function deleteAccount(int $accountId): void
     {
         app(DeleteProviderAccount::class)->delete($this->account($accountId));
@@ -144,7 +170,7 @@ new #[Title('Provider settings')] class extends Component {
     {
         return ProviderAccount::query()
             ->orderBy('display_name')
-            ->with('credentials')
+            ->with(['credentials', 'latestSyncRun'])
             ->get();
     }
 
@@ -269,6 +295,12 @@ new #[Title('Provider settings')] class extends Component {
                             @if (! $account->enabled)
                                 <flux:badge size="sm">{{ __('Sync paused') }}</flux:badge>
                             @endif
+
+                            @if ($account->latestSyncRun !== null)
+                                <flux:badge :variant="$account->latestSyncRun->status->value === 'succeeded' ? 'success' : 'neutral'" size="sm" data-test="last-run-status">
+                                    {{ __('Last run: :status', ['status' => $account->latestSyncRun->status->value]) }}
+                                </flux:badge>
+                            @endif
                         </div>
 
                         <p class="text-sm text-zinc-500 dark:text-zinc-400">
@@ -291,6 +323,10 @@ new #[Title('Provider settings')] class extends Component {
                         @endif
 
                         <div class="flex flex-wrap items-center gap-2">
+                            <flux:button size="sm" wire:click="syncNow({{ $account->id }})" data-test="sync-now-button">
+                                {{ __('Sync now') }}
+                            </flux:button>
+
                             <flux:button size="sm" wire:click="testConnection({{ $account->id }})" data-test="test-connection-button">
                                 {{ __('Test connection') }}
                             </flux:button>

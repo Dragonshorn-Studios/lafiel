@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Domain\Providers\AdapterRegistry;
+use App\Domain\Providers\Ovh\OvhProviderAdapter;
 use App\Listeners\VerifyDatabaseHealth;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Events\DiagnosingHealth;
@@ -20,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(AdapterRegistry::class);
+        $this->app->singleton(OvhProviderAdapter::class);
     }
 
     /**
@@ -28,6 +30,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        $this->app->make(AdapterRegistry::class)
+            ->register('ovh', $this->app->make(OvhProviderAdapter::class));
 
         Event::listen(DiagnosingHealth::class, VerifyDatabaseHealth::class);
     }

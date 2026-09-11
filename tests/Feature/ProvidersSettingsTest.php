@@ -1,11 +1,15 @@
 <?php
 
+use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Providers\Ovh\BuildOvhApi;
 use App\Domain\Providers\Ovh\OvhApi;
+use App\Domain\Providers\Ovh\OvhProviderAdapter;
+use App\Domain\Sync\Enums\SyncStatus;
+use App\Domain\Sync\Models\SyncRun;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Sleep;
@@ -25,13 +29,10 @@ beforeEach(function () {
  */
 function fakeOvhClient(FakeOvhApi $api): void
 {
-    app()->bind(BuildOvhApi::class, fn (): object => new class($api)
+    app()->bind(BuildOvhApi::class, fn (): BuildOvhApi => new class($api) extends BuildOvhApi
     {
         public function __construct(private readonly OvhApi $api) {}
 
-        /**
-         * @param  array<string, mixed>  $payload
-         */
         public function build(array $payload): OvhApi
         {
             return $this->api;
@@ -186,4 +187,40 @@ it('never renders stored credential material back into the page', function () {
     $html = providersPage()->call('edit', $account->id)->html();
 
     expect($html)->not->toContain($secret);
+});
+
+it('queues a sync now through the shared entry point', function () {
+    $this->freezeTime();
+    $this->app->forgetInstance(AdapterRegistry::class);
+    $this->app->forgetInstance(OvhProviderAdapter::class);
+
+    // Credentials that fail validation keep the run offline while still
+    // exercising the full shared pipeline.
+    $api = (new FakeOvhApi)->throwOn('/me', [
+        new InvalidCredentialsException('OVH rejected the credentials for [/me] (HTTP 401).'),
+    ]);
+    fakeOvhClient($api);
+    app(AdapterRegistry::class)->register('ovh', app(OvhProviderAdapter::class));
+
+    $account = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
+
+    providersPage()
+        ->call('syncNow', $account->id)
+        ->assertSee(__('Last run: :status', ['status' => 'failed']), false);
+
+    expect(SyncRun::query()->where('provider_account_id', $account->id)->count())->toBe(1)
+        ->and(SyncRun::query()->where('provider_account_id', $account->id)->sole()->trigger)->toBe('manual');
+});
+
+it('refuses a second sync while a run is still active', function () {
+    $account = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
+    SyncRun::factory()->create([
+        'provider_account_id' => $account->id,
+        'status' => SyncStatus::Running,
+        'started_at' => now(),
+    ]);
+
+    providersPage()->call('syncNow', $account->id);
+
+    expect(SyncRun::query()->where('provider_account_id', $account->id)->count())->toBe(1);
 });

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * @property int $id
@@ -72,5 +73,13 @@ class ProviderAccount extends Model
     public function syncRuns(): HasMany
     {
         return $this->hasMany(SyncRun::class);
+    }
+
+    /**
+     * @return HasOne<SyncRun, $this>
+     */
+    public function latestSyncRun(): HasOne
+    {
+        return $this->hasOne(SyncRun::class)->latestOfMany();
     }
 }

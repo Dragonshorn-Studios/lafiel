@@ -9,9 +9,10 @@ use Illuminate\Validation\ValidationException;
  * Builds the read-only API client for a stored credential payload. A
  * payload that no longer matches the schema is a permanent, human-fixable
  * condition — the same category as credentials the provider rejected,
- * never something to retry.
+ * never something to retry. Not final so tests can hand out a fake
+ * client through the same seam.
  */
-final class BuildOvhApi
+class BuildOvhApi
 {
     /**
      * @param  array<string, mixed>  $payload  decrypted credential payload
