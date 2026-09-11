@@ -8,8 +8,48 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+    Imperial Ledger semantic tokens (docs/design-system.md). These are
+    the only colors new UI may reference — raw palette values scattered
+    through Blade are an anti-pattern. The zinc scale stays for pages
+    not yet migrated to the tokens.
+*/
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-serif: ui-serif, Georgia, 'Times New Roman', serif;
+
+    --color-canvas: #F7F7F3;
+    --color-surface: #FFFFFF;
+    --color-surface-subtle: #F0F1ED;
+    --color-command: #172238;
+    --color-surface-selected: #E5ECF3;
+
+    --color-ink: #17202B;
+    --color-ink-secondary: #52606E;
+    --color-ink-muted: #7B8794;
+    --color-on-command: #F7F7F3;
+
+    --color-info: #416B9B;
+
+    --color-line: #D7DDE3;
+    --color-line-strong: #AEBBC8;
+    --color-line-command: #31435F;
+
+    --color-primary: #22314C;
+    --color-primary-hover: #172238;
+
+    --color-attention: #A8792A;
+    --color-danger: #B64A52;
+    --color-success: #3F7963;
+
+    --color-cost-actual: #17202B;
+    --color-cost-estimate: #416B9B;
+    --color-cost-normalized: #52606E;
+    --color-cost-unknown: #7B8794;
+
+    --radius-card: 10px;
+    --radius-control: 8px;
 
     --color-zinc-50: #fafafa;
     --color-zinc-100: #f5f5f5;
@@ -23,16 +63,50 @@
     --color-zinc-900: #171717;
     --color-zinc-950: #0a0a0a;
 
-    --color-accent: var(--color-neutral-800);
-    --color-accent-content: var(--color-neutral-800);
+    --color-accent: var(--color-primary);
+    --color-accent-content: var(--color-primary);
     --color-accent-foreground: var(--color-white);
 }
 
+/*
+    Dark palette: prepared per docs/design-system.md, not promised in
+    v1. The values exist so the appearance toggle keeps working while
+    pages migrate to the semantic tokens.
+*/
 @layer theme {
     .dark {
-        --color-accent: var(--color-white);
-        --color-accent-content: var(--color-white);
-        --color-accent-foreground: var(--color-neutral-800);
+        --color-canvas: #0E1522;
+        --color-surface: #151F30;
+        --color-surface-subtle: #1C293D;
+        --color-command: #0A101B;
+        --color-surface-selected: #1C293D;
+
+        --color-ink: #EDF1F5;
+        --color-ink-secondary: #AAB6C3;
+        --color-ink-muted: #7B8794;
+        --color-on-command: #EDF1F5;
+
+        --color-info: #7FA5CF;
+
+        --color-line: #304056;
+        --color-line-strong: #3E5470;
+        --color-line-command: #304056;
+
+        --color-primary: #7FA5CF;
+        --color-primary-hover: #8FB3D9;
+
+        --color-attention: #D1A85C;
+        --color-danger: #C96A71;
+        --color-success: #6FA98F;
+
+        --color-cost-actual: #EDF1F5;
+        --color-cost-estimate: #7FA5CF;
+        --color-cost-normalized: #AAB6C3;
+        --color-cost-unknown: #7B8794;
+
+        --color-accent: var(--color-primary);
+        --color-accent-content: var(--color-primary);
+        --color-accent-foreground: var(--color-command);
     }
 }
 

@@ -92,7 +92,7 @@ test('a manual cost reaches the list and the projection', function () {
     expect(Renewal::query()->count())->toEqual(1);
 
     // The Overview sees the same cost through the shared projection.
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
 
     expect($overview->get('summary')['monthly'])->toEqual('86.99 PLN/mo');
 });
@@ -112,7 +112,7 @@ test('an unknown amount is accepted and counted, never summed', function () {
 
     expect($item->amount_state->value)->toEqual('unknown');
 
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
 
     expect($overview->get('summary')['monthly'])->toEqual('0.00 PLN/mo + 1 unknown');
 });
@@ -309,7 +309,7 @@ test('a manual cost can overlay an existing provider service', function () {
     expect($discovered->costItems()->count())->toEqual(1);
 
     // The overlay counts once in the projection.
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
     expect($overview->get('summary')['monthly'])->toEqual('42.00 PLN/mo');
 });
 

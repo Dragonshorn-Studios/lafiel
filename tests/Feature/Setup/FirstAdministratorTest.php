@@ -37,7 +37,7 @@ test('administrator can be created exactly once through the setup screen', funct
         'password_confirmation' => 'super-secret-password',
     ]);
 
-    $response->assertRedirect(route('dashboard', absolute: false));
+    $response->assertRedirect(route('overview', absolute: false));
 
     $user = User::query()->sole();
 

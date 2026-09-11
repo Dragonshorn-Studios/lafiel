@@ -33,6 +33,7 @@ class CostProjector
     public function project(CarbonImmutable $onDate): ProjectionResult
     {
         $items = CostItem::query()
+            ->with('services.providerAccount')
             ->whereDate('valid_from', '<=', $onDate)
             ->where(fn ($query) => $query
                 ->whereNull('valid_to')

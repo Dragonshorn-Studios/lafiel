@@ -13,7 +13,9 @@ use App\Domain\Support\ValueObjects\Rational;
 /**
  * One winning charge in the projection: the cost item that carries the
  * strongest evidence for its logical charge, converted to exact monthly
- * and annual equivalents.
+ * and annual equivalents. The provider label exists so read models can
+ * group charges without touching Eloquent; a charge whose services
+ * have no provider account is presented as Manual.
  */
 final readonly class ChargeLine
 {
@@ -28,6 +30,7 @@ final readonly class ChargeLine
         public Rational $monthlyEquivalent,
         public Rational $annualEquivalent,
         public bool $isStale,
+        public string $provider = 'Manual',
     ) {}
 
     public static function fromCostItem(CostItem $item, Money $amount, Rational $monthly, Rational $annual, bool $isStale): self
@@ -43,6 +46,24 @@ final readonly class ChargeLine
             monthlyEquivalent: $monthly,
             annualEquivalent: $annual,
             isStale: $isStale,
+            provider: self::providerLabel($item),
         );
+    }
+
+    /**
+     * The first distinct provider account behind the charge's services.
+     * An overlay charge may span providers; v1 presents its first.
+     */
+    private static function providerLabel(CostItem $item): string
+    {
+        foreach ($item->services as $service) {
+            $name = $service->providerAccount?->display_name;
+
+            if ($name !== null && $name !== '') {
+                return $name;
+            }
+        }
+
+        return 'Manual';
     }
 }
