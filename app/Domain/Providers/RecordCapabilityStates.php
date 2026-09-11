@@ -13,14 +13,14 @@ use Carbon\CarbonImmutable;
  * Upserts the per-capability freshness state after one run. All known
  * capabilities get their support flag from the adapter's capability
  * set; only attempted ones move attempt/success/observation state.
- * `healthy` means the last attempt fully succeeded — a partial or
- * failed attempt marks the capability stale while the last good data
- * stays untouched.
+ * A failed attempt moves nothing but the attempt time; a partial
+ * attempt records the observation but not a success, so the capability
+ * reads stale while its last complete data stays untouched.
  */
 final class RecordCapabilityStates
 {
     /**
-     * @param  array<string, CapabilityOutcome>  $outcomes  keyed by capability value
+     * @param  array<string, CapabilityOutcome>  $outcomes  keyed by capability value; only attempted capabilities appear
      */
     public function record(ProviderAccount $account, CapabilitySet $capabilities, array $outcomes, CarbonImmutable $now): void
     {
@@ -34,7 +34,7 @@ final class RecordCapabilityStates
 
             $outcome = $outcomes[$capability->value] ?? null;
 
-            if ($outcome !== null && $outcome->attempted) {
+            if ($outcome !== null) {
                 $state->last_attempt_at = $now;
                 $state->healthy = $outcome->completeness === BatchCompleteness::Complete;
 
@@ -42,7 +42,7 @@ final class RecordCapabilityStates
                     $state->last_success_at = $now;
                 }
 
-                if ($outcome->completeness !== null && $outcome->completeness->producedUsableData()) {
+                if ($outcome->completeness->producedUsableData()) {
                     $state->last_observed_at = $outcome->observedAt ?? $now;
                 }
             }

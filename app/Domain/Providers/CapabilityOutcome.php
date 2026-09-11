@@ -7,14 +7,15 @@ use App\Domain\Providers\Enums\ProviderCapability;
 use Carbon\CarbonImmutable;
 
 /**
- * Outcome of one capability during one sync run.
+ * Outcome of one capability attempt during one sync run. Only attempted
+ * capabilities get an outcome; null observedAt means the attempt
+ * produced nothing observable (failed before data arrived).
  */
 final readonly class CapabilityOutcome
 {
     public function __construct(
         public ProviderCapability $capability,
-        public bool $attempted,
-        public ?BatchCompleteness $completeness = null,
+        public BatchCompleteness $completeness,
         public ?CarbonImmutable $observedAt = null,
     ) {}
 }

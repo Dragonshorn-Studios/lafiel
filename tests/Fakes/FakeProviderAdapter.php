@@ -15,8 +15,8 @@ use Throwable;
 /**
  * Scriptable adapter for orchestration tests: returns the configured
  * batches, throws from its exception queues (one per call), and counts
- * every call so tests can assert retry and validation behavior. Also
- * the shape a real adapter (OVH) will implement.
+ * every fetch and credential call so tests can assert retry and
+ * validation behavior. It implements the full adapter contract.
  */
 final class FakeProviderAdapter implements ProviderAdapter
 {

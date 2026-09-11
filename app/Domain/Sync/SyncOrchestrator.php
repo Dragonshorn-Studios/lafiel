@@ -2,19 +2,23 @@
 
 namespace App\Domain\Sync;
 
+use App\Domain\Inventory\Lifecycle\ApplyInventoryLifecycle;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\CapabilityOutcome;
 use App\Domain\Providers\Dtos\CostFactBatch;
 use App\Domain\Providers\Dtos\SyncContext;
 use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Enums\ProviderCapability;
+use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\ProviderException;
 use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
+use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Providers\RecordCapabilityStates;
 use App\Domain\Support\Redaction\Redactor;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
+use App\Domain\Sync\Persistence\EndAbsentCostFacts;
 use App\Domain\Sync\Persistence\PersistCostFacts;
 use App\Domain\Sync\Persistence\PersistInventoryBatch;
 use App\Domain\Sync\Retry\RetryPolicy;
@@ -23,13 +27,15 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * The sync algorithm for one provider account, per docs/architecture.md:
  * lock, claim the run, validate credentials only when needed, fetch
  * outside a transaction, validate batch invariants, persist
- * idempotently in a short transaction, finish with counts and sanitized
- * warnings. Lifecycle transitions land with the service-lifecycle issue.
+ * idempotently in a short transaction, apply lifecycle transitions —
+ * missing/inactive only after a complete inventory, presence on any
+ * usable batch — and finish with counts and sanitized warnings.
  */
 final class SyncOrchestrator
 {
@@ -39,6 +45,8 @@ final class SyncOrchestrator
         private readonly ValidateBatches $validation,
         private readonly PersistInventoryBatch $persistInventory,
         private readonly PersistCostFacts $persistCostFacts,
+        private readonly EndAbsentCostFacts $endAbsentCostFacts,
+        private readonly ApplyInventoryLifecycle $applyLifecycle,
         private readonly RecordCapabilityStates $recordCapabilities,
         private readonly ReconcileStaleRuns $reconcile,
     ) {}
@@ -47,10 +55,9 @@ final class SyncOrchestrator
     {
         $run->load('providerAccount');
         $account = $run->providerAccount;
-        $now = new CarbonImmutable;
 
         if (! $account->enabled) {
-            return $this->finish($run, SyncStatus::Cancelled, [], ['account is disabled'], $now);
+            return $this->finish($run, SyncStatus::Cancelled, [], ['account is disabled']);
         }
 
         $lock = Cache::lock(
@@ -62,19 +69,22 @@ final class SyncOrchestrator
         // is the account's only live run, so a held lock always belongs
         // to a stale worker — fail fast and let the TTL recover it.
         if (! $lock->get()) {
-            return $this->finish($run, SyncStatus::Failed, [], ['account lock is held by another sync'], $now);
+            return $this->finish($run, SyncStatus::Failed, [], ['account lock is held by another sync']);
         }
 
         try {
-            return $this->execute($run, $account, $now);
+            return $this->execute($run, $account);
         } finally {
             $lock->release();
         }
     }
 
-    private function execute(SyncRun $run, ProviderAccount $account, CarbonImmutable $now): SyncRun
+    private function execute(SyncRun $run, ProviderAccount $account): SyncRun
     {
         $this->reconcile->reconcile($account->id, $run->id);
+
+        // Claim-time instant: everything that marks "a run started" shares it.
+        $now = new CarbonImmutable;
 
         $claimed = SyncRun::query()
             ->whereKey($run->id)
@@ -92,13 +102,13 @@ final class SyncOrchestrator
         try {
             $adapter = $this->registry->for($account->provider_key);
         } catch (UnsupportedProviderException $exception) {
-            return $this->finish($run, SyncStatus::Failed, [], [$exception->getMessage()], $now);
+            return $this->finish($run, SyncStatus::Failed, [], [$this->providerWarning($exception)]);
         }
 
         $credential = $account->credentials()->latest('id')->first();
 
         if ($credential === null) {
-            return $this->finish($run, SyncStatus::Failed, [], ['account has no stored credentials'], $now);
+            return $this->finish($run, SyncStatus::Failed, [], ['account has no stored credentials']);
         }
 
         $context = new SyncContext($account, $credential->payload, $now);
@@ -109,12 +119,14 @@ final class SyncOrchestrator
         ) {
             try {
                 $check = $this->retry->execute(fn () => $adapter->validateCredentials($context));
+            } catch (InvalidCredentialsException $exception) {
+                return $this->finishWithRejectedCredentials($run, $credential, $exception, $redactor);
             } catch (ProviderException $exception) {
-                return $this->finish($run, SyncStatus::Failed, [], [$exception->getMessage()], $now, $redactor);
+                return $this->finish($run, SyncStatus::Failed, [], [$this->providerWarning($exception)], $redactor);
             }
 
             if (! $check->valid) {
-                return $this->finish($run, SyncStatus::Failed, [], [$check->warning ?? 'credentials are invalid'], $now, $redactor);
+                return $this->finish($run, SyncStatus::Failed, [], [$check->warning ?? 'credentials are invalid'], $redactor);
             }
 
             $credential->verified_at = $now;
@@ -125,11 +137,11 @@ final class SyncOrchestrator
         try {
             $capabilities = $this->retry->execute(fn () => $adapter->capabilities());
         } catch (ProviderException $exception) {
-            return $this->finish($run, SyncStatus::Failed, [], [$exception->getMessage()], $now, $redactor);
+            return $this->finish($run, SyncStatus::Failed, [], [$this->providerWarning($exception)], $redactor);
         }
 
         if (! $capabilities->supports(ProviderCapability::Inventory)) {
-            return $this->finish($run, SyncStatus::Failed, [], ['adapter does not support the inventory capability'], $now, $redactor);
+            return $this->finish($run, SyncStatus::Failed, [], ['adapter does not support the inventory capability'], $redactor);
         }
 
         $warnings = [];
@@ -141,27 +153,36 @@ final class SyncOrchestrator
 
         try {
             $inventoryBatch = $this->retry->execute(fn () => $adapter->fetchInventory($context));
-            $this->validation->inventory($inventoryBatch);
+            // Adapter warnings are sanitized by contract; take them before
+            // validation so an invalid batch still reports what it saw.
             $warnings = [...$warnings, ...$inventoryBatch->warnings];
+            $this->validation->inventory($inventoryBatch);
             $outcomes[ProviderCapability::Inventory->value] = new CapabilityOutcome(
                 ProviderCapability::Inventory,
-                attempted: true,
-                completeness: $inventoryBatch->completeness,
-                observedAt: $inventoryBatch->observedAt,
+                $inventoryBatch->completeness,
+                $inventoryBatch->observedAt,
             );
+        } catch (InvalidCredentialsException $exception) {
+            $this->recordCapabilities->record($account, $capabilities, [
+                ProviderCapability::Inventory->value => new CapabilityOutcome(
+                    ProviderCapability::Inventory,
+                    BatchCompleteness::Failed,
+                ),
+            ], $now);
+
+            return $this->finishWithRejectedCredentials($run, $credential, $exception, $redactor);
         } catch (ProviderException $exception) {
-            $warnings[] = $exception->getMessage();
+            $warnings[] = $this->providerWarning($exception);
             $outcomes[ProviderCapability::Inventory->value] = new CapabilityOutcome(
                 ProviderCapability::Inventory,
-                attempted: true,
-                completeness: BatchCompleteness::Failed,
+                BatchCompleteness::Failed,
             );
         }
 
         if ($outcomes[ProviderCapability::Inventory->value]->completeness === BatchCompleteness::Failed) {
             $this->recordCapabilities->record($account, $capabilities, $outcomes, $now);
 
-            return $this->finish($run, SyncStatus::Failed, [], $warnings, $now, $redactor);
+            return $this->finish($run, SyncStatus::Failed, [], $warnings, $redactor);
         }
 
         // --- Cost facts phase ------------------------------------------------
@@ -174,21 +195,22 @@ final class SyncOrchestrator
                 $costBatch = $this->retry->execute(
                     fn () => $adapter->fetchCostFacts($context, $inventoryBatch),
                 );
-                $this->validation->costFacts($costBatch, $inventoryBatch);
                 $warnings = [...$warnings, ...$costBatch->warnings];
+                $this->validation->costFacts($costBatch, $inventoryBatch);
+            } catch (InvalidCredentialsException $exception) {
+                return $this->finishWithRejectedCredentials($run, $credential, $exception, $redactor);
             } catch (ProviderException $exception) {
                 $costBatch = null;
                 $costFailed = true;
-                $warnings[] = $exception->getMessage();
+                $warnings[] = $this->providerWarning($exception);
             }
 
             if ($costBatch !== null && $costBatch->completeness->producedUsableData()) {
                 foreach ($costCapabilities as $capability) {
                     $outcomes[$capability->value] = new CapabilityOutcome(
                         $capability,
-                        attempted: true,
-                        completeness: $costBatch->completenessFor($capability),
-                        observedAt: $costBatch->observedAt,
+                        $costBatch->completenessFor($capability),
+                        $costBatch->observedAt,
                     );
                 }
             } else {
@@ -196,8 +218,7 @@ final class SyncOrchestrator
                 foreach ($costCapabilities as $capability) {
                     $outcomes[$capability->value] = new CapabilityOutcome(
                         $capability,
-                        attempted: true,
-                        completeness: BatchCompleteness::Failed,
+                        BatchCompleteness::Failed,
                     );
                 }
             }
@@ -206,7 +227,7 @@ final class SyncOrchestrator
         // --- Persistence (short transaction, only usable data) ---------------
         $counts = [];
 
-        [$inventoryCounts, $costCounts] = DB::transaction(function () use ($account, $inventoryBatch, $costBatch): array {
+        [$inventoryCounts, $costCounts] = DB::transaction(function () use ($account, $inventoryBatch, $costBatch, $costCapabilities): array {
             $persisted = $this->persistInventory->persist($account->id, $inventoryBatch);
             $inventoryCounts = ['seen' => count($inventoryBatch->items), 'created' => $persisted->created, 'updated' => $persisted->updated];
 
@@ -215,6 +236,18 @@ final class SyncOrchestrator
             if ($costBatch !== null && $costBatch->completeness->producedUsableData()) {
                 $facts = $this->persistCostFacts->persist($account->provider_key, $account->id, $costBatch, $persisted->services);
                 $costCounts = ['seen' => count($costBatch->facts), 'created' => $facts->created, 'superseded' => $facts->superseded, 'updated' => $facts->updated, 'renewals' => $facts->renewals];
+
+                // Ending an unreported charge takes positive evidence that
+                // the whole cost phase was complete — not just the overall
+                // flag: a per-capability partial must end nothing.
+                $fullyComplete = $costBatch->completeness === BatchCompleteness::Complete
+                    && collect($costCapabilities)->every(
+                        fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
+                    );
+
+                if ($fullyComplete) {
+                    $costCounts['ended'] = $this->endAbsentCostFacts->end($account->provider_key, $account->id, $costBatch);
+                }
             }
 
             return [$inventoryCounts, $costCounts];
@@ -226,23 +259,26 @@ final class SyncOrchestrator
             $counts['cost_facts'] = $costCounts;
         }
 
+        // --- Lifecycle: only a complete inventory may mark missing (docs/architecture.md, sync algorithm) ---
+        $this->applyLifecycle->apply($account, $inventoryBatch);
+
         $this->recordCapabilities->record($account, $capabilities, $outcomes, $now);
 
         // --- Run status -------------------------------------------------------
         $status = $this->statusFor($outcomes, $costCapabilities, $costFailed, $costBatch);
 
         if (in_array($status, [SyncStatus::Succeeded, SyncStatus::Partial], true)) {
-            $account->last_success_at = $now;
+            $account->last_success_at = new CarbonImmutable;
             $account->save();
         }
 
-        return $this->finish($run, $status, $counts, $warnings, $now, $redactor);
+        return $this->finish($run, $status, $counts, $warnings, $redactor);
     }
 
     /**
-     * Inventory decides between succeeded and partial; a failed cost
-     * phase only degrades the run, because the inventory data is good
-     * and must not be thrown away.
+     * Inventory completeness decides: failed fails the run, partial
+     * degrades it; a failed cost phase only degrades the run, because
+     * the inventory data is good and must not be thrown away.
      *
      * @param  array<string, CapabilityOutcome>  $outcomes
      * @param  list<ProviderCapability>  $costCapabilities
@@ -279,28 +315,84 @@ final class SyncOrchestrator
         return $degraded === [] ? SyncStatus::Succeeded : SyncStatus::Partial;
     }
 
+    private function finishWithRejectedCredentials(SyncRun $run, ProviderCredential $credential, InvalidCredentialsException $exception, Redactor $redactor): SyncRun
+    {
+        // The provider just rejected these credentials; the local
+        // "verified" mark is a lie until a human fixes them. Clearing it
+        // makes the next run fail fast at validation.
+        $credential->verified_at = null;
+        $credential->save();
+
+        return $this->finish($run, SyncStatus::Failed, [], [$this->providerWarning($exception)], $redactor);
+    }
+
     /**
+     * Finish the run with counts and sanitized warnings. The update is
+     * claim-guarded: only a queued or running run can be finished, so a
+     * worker that outlived its lock (or its reconcile) can never
+     * resurrect a run someone else already terminated.
+     *
      * @param  array<string, mixed>  $counts
      * @param  list<string>  $warnings
      */
-    private function finish(SyncRun $run, SyncStatus $status, array $counts, array $warnings, CarbonImmutable $now, ?Redactor $redactor = null): SyncRun
+    private function finish(SyncRun $run, SyncStatus $status, array $counts, array $warnings, ?Redactor $redactor = null): SyncRun
     {
         $redactor ??= new Redactor([]);
         $warnings = array_map(fn (string $warning): string => $redactor->message($warning), $warnings);
+        $finishedAt = new CarbonImmutable;
 
         $run->status = $status;
-        $run->finished_at = $now;
+        $run->finished_at = $finishedAt;
         $run->counts = $counts === [] ? null : $counts;
         $run->summary = $warnings === [] ? null : ['warnings' => $warnings];
-        $run->save();
 
-        Log::info('Sync run finished.', [
+        $claimed = SyncRun::query()
+            ->whereKey($run->id)
+            ->whereIn('status', [SyncStatus::Queued->value, SyncStatus::Running->value])
+            ->update([
+                'status' => $status->value,
+                'finished_at' => $finishedAt,
+                'counts' => $run->counts,
+                'summary' => $run->summary,
+            ]);
+
+        if ($claimed === 0) {
+            // Someone else already terminated this run; their record wins.
+            return $run->fresh() ?? $run;
+        }
+
+        $this->logFinished($status, $run, $warnings);
+
+        return $run;
+    }
+
+    /**
+     * @param  list<string>  $warnings
+     */
+    private function logFinished(SyncStatus $status, SyncRun $run, array $warnings): void
+    {
+        $context = [
             'provider_account_id' => $run->provider_account_id,
             'sync_run_id' => $run->id,
             'status' => $status->value,
             'warnings' => $warnings,
-        ]);
+        ];
 
-        return $run;
+        match ($status) {
+            SyncStatus::Failed => Log::error('Sync run failed.', $context),
+            SyncStatus::Succeeded => Log::info('Sync run finished.', $context),
+            default => Log::warning('Sync run finished with warnings.', $context),
+        };
+    }
+
+    /**
+     * Short exception class plus message: the class name distinguishes a
+     * provider outage from an adapter bug, and all these classes are ours.
+     */
+    private function providerWarning(ProviderException $exception): string
+    {
+        $shortClass = Str::afterLast($exception::class, '\\');
+
+        return sprintf('%s: %s', $shortClass, $exception->getMessage());
     }
 }

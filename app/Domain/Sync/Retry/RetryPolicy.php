@@ -47,7 +47,11 @@ final class RetryPolicy
                 return $operation();
             } catch (TransientProviderException $exception) {
                 if ($attempt >= $this->maxAttempts) {
-                    throw $exception;
+                    throw new TransientProviderException(
+                        sprintf('%s (after %d attempts)', $exception->getMessage(), $attempt),
+                        0,
+                        $exception,
+                    );
                 }
 
                 Sleep::for($this->delayFor($attempt))->milliseconds();

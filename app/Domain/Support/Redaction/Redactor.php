@@ -7,6 +7,9 @@ namespace App\Domain\Support\Redaction;
  * collected from the credential payload and replaced wherever they
  * appear in strings or arrays bound for sync run summaries and logs —
  * including when an adapter accidentally embeds one in a warning.
+ * Deliberately biased towards over-redaction: every payload value of
+ * eight characters or more is treated as secret, so a long region id
+ * can vanish from a warning. That is safer than the alternative.
  */
 final class Redactor
 {
@@ -20,7 +23,13 @@ final class Redactor
      */
     public function __construct(array $payload)
     {
-        $this->secrets = $this->collectSecrets($payload);
+        $secrets = $this->collectSecrets($payload);
+
+        // Longest first, so replacing a short key-named secret that is a
+        // substring of a longer one cannot leave readable residue behind.
+        usort($secrets, fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        $this->secrets = $secrets;
     }
 
     public function message(string $text): string
@@ -39,12 +48,27 @@ final class Redactor
     public function array(array $data): array
     {
         foreach ($data as $key => $value) {
-            $data[$key] = is_array($value)
-                ? $this->array($value)
-                : (is_string($value) ? $this->message($value) : $value);
+            $data[$key] = match (true) {
+                is_array($value) => $this->array($value),
+                is_string($value) => $this->message($value),
+                is_scalar($value) => $this->scrubScalar($value),
+                default => $value,
+            };
         }
 
         return $data;
+    }
+
+    /**
+     * Scrubs a non-string scalar while keeping its type; only a value
+     * that actually matched a secret comes back as a string.
+     */
+    private function scrubScalar(int|float|bool $value): int|float|bool|string
+    {
+        $raw = (string) $value;
+        $scrubbed = $this->message($raw);
+
+        return $scrubbed === $raw ? $value : $scrubbed;
     }
 
     /**

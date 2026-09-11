@@ -8,8 +8,9 @@ return new class extends Migration
     /**
      * One sync per provider account: the database owns the invariant
      * that a queued or running run is unique per account, the same way
-     * it owns service identity. RequestSync still checks first; the
-     * index closes the dispatch race.
+     * it owns service identity. RequestSync inserts and treats a
+     * uniqueness violation as "already syncing"; the index closes the
+     * dispatch race.
      */
     public function up(): void
     {

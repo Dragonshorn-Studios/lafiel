@@ -17,7 +17,7 @@ final readonly class CostFactBatch
     /**
      * @param  list<CostFact>  $facts
      * @param  list<string>  $warnings
-     * @param  array<string, BatchCompleteness>  $capabilityCompleteness
+     * @param  array<string, BatchCompleteness>  $capabilityCompleteness  keyed by capability value
      */
     public function __construct(
         public BatchCompleteness $completeness,
@@ -26,7 +26,13 @@ final readonly class CostFactBatch
         public array $facts,
         public array $warnings = [],
         public array $capabilityCompleteness = [],
-    ) {}
+    ) {
+        foreach (array_keys($capabilityCompleteness) as $capability) {
+            if (ProviderCapability::tryFrom((string) $capability) === null) {
+                throw new \InvalidArgumentException("Unknown capability [{$capability}] in per-capability completeness.");
+            }
+        }
+    }
 
     /**
      * Completeness for one cost capability: the explicit per-capability
