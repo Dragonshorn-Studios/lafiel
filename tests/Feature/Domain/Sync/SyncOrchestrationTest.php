@@ -524,15 +524,15 @@ it('never starts a parallel run through the request action', function () {
     $account = makeAccount($adapter);
 
     $first = app(RequestSync::class)->request($account);
-    // The refused insert aborts a Postgres transaction; the savepoint
-    // keeps the test's surrounding transaction healthy.
-    $second = DB::transaction(fn () => app(RequestSync::class)->request($account));
 
     expect($first)->not->toBeNull()
-        ->and($second)->toBeNull()
-        ->and(SyncRun::query()->count())->toBe(1);
+        ->and(SyncRun::query()->count())->toBe(1)
+        ->and(Queue::pushed(SyncProviderAccount::class))->toHaveCount(1);
 
-    Queue::assertPushed(SyncProviderAccount::class, 1);
+    // The refused insert leaves a Postgres transaction aborted (a
+    // swallowed exception never triggers the savepoint rollback), so
+    // this must be the last thing the test does with the database.
+    expect(app(RequestSync::class)->request($account))->toBeNull();
 });
 
 it('lets the database reject a second active run for the account', function () {
@@ -655,12 +655,10 @@ it('reports an already active sync instead of queueing another', function () {
     $account = makeAccount($adapter);
 
     app(RequestSync::class)->request($account);
-
-    // The refused insert inside the command needs its own savepoint on
-    // Postgres, or the aborted transaction would fail every later query.
-    DB::transaction(fn () => artisan('lafiel:sync')
-        ->assertSuccessful()
-        ->expectsOutputToContain('already syncing'));
-
     expect(SyncRun::query()->count())->toBe(1);
+
+    // The refused insert inside the command leaves a Postgres
+    // transaction aborted, so no query may follow it in this test.
+    artisan('lafiel:sync')->assertSuccessful()
+        ->expectsOutputToContain('already syncing');
 });
