@@ -48,3 +48,39 @@ function something()
 {
     // ..
 }
+
+/**
+ * A synthetic OVH credential payload for tests. The values are fake
+ * but secret-shaped, so redaction tests can assert they never leak.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, string>
+ */
+function ovhPayload(array $overrides = []): array
+{
+    return [
+        'endpoint' => 'ovh-eu',
+        'application_key' => 'AK0000000000000000',
+        'application_secret' => 'AS00000000000000000000000000000000',
+        'consumer_key' => 'CK00000000000000000000000000000000',
+        ...$overrides,
+    ];
+}
+
+/**
+ * Load one synthetic fixture from tests/Fixtures/Ovh.
+ */
+function ovhFixture(string $path): mixed
+{
+    $contents = file_get_contents(ovhFixtureDir().'/'.$path);
+
+    return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Absolute path of the synthetic OVH fixture directory.
+ */
+function ovhFixtureDir(): string
+{
+    return __DIR__.'/Fixtures/Ovh';
+}

@@ -1,0 +1,39 @@
+{
+    "catalogName": "domain",
+    "date": "2026-09-01",
+    "pricingMode": "default",
+    "locale": {
+        "currencyCode": "EUR",
+        "name": "Europe/Paris",
+        "position": "6"
+    },
+    "catalog": [
+        {
+            "name": "domain",
+            "products": [
+                {
+                    "name": "eu.org-hosting-2025",
+                    "planCode": "eu.org-hosting-2025-monthly",
+                    "pricings": [
+                        {
+                            "duration": "P1M",
+                            "pricingMode": "default",
+                            "description": "monthly renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "1.20 €",
+                                "value": 1.2
+                            },
+                            "priceInUtv": 120,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "structures": [],
+    "addonsFamilies": []
+}

@@ -1,0 +1,22 @@
+{
+    "serviceId": 400010003,
+    "serviceName": "cloud-project-synthetic-01",
+    "status": "ok",
+    "domain": null,
+    "creation": "2026-03-08T11:47:52+01:00",
+    "offer": "project-2025",
+    "route": "/cloud/project/cloud-project-synthetic-01",
+    "renew": {
+        "automatic": true,
+        "deleteAt": null,
+        "forced": false,
+        "manualPayment": false,
+        "period": "P1M",
+        "renew": "automatic",
+        "renewDeleteAt": null
+    },
+    "engagedUpTo": null,
+    "possibleRenewPeriods": [
+        "P1M"
+    ]
+}
