@@ -104,7 +104,7 @@
                         <span class="font-serif text-lg leading-none tracking-wide">Lafiel</span>
                     </div>
 
-                    <flux:heading class="lg:ms-0" level="2">{{ __('Fleet ledger') }}</flux:heading>
+                    <flux:heading class="whitespace-nowrap" level="2">{{ __('Fleet ledger') }}</flux:heading>
 
                     <flux:spacer />
 
@@ -114,9 +114,12 @@
                 </div>
             </header>
 
-            <flux:main class="mx-auto w-full max-w-[1440px] flex-1 px-4 pb-24 pt-6 sm:px-6 lg:pb-10">
+            {{-- Plain main on purpose: nesting <flux:main> here would pull
+                Flux's body grid template into this wrapper and collapse the
+                header into a min-content grid column. --}}
+            <main class="mx-auto w-full max-w-[1440px] flex-1 px-4 pb-24 pt-6 sm:px-6 lg:pb-10">
                 {{ $slot }}
-            </flux:main>
+            </main>
         </div>
 
         {{-- --- Bottom nav (mobile) --- --}}
