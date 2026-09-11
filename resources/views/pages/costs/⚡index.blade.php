@@ -270,7 +270,9 @@ new #[Title('Costs')] class extends Component {
                 </flux:select>
             </div>
 
-            <flux:checkbox wire:model="unknownAmount" :label="__('Amount unknown')" />
+            <div>
+                <flux:checkbox wire:model="unknownAmount" :label="__('Amount unknown')" />
+            </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="validFrom" :label="__('Start')" type="date" required />
@@ -279,8 +281,18 @@ new #[Title('Costs')] class extends Component {
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="renewsAt" :label="__('Next renewal')" type="date" />
-                <flux:checkbox wire:model="autoRenew" :label="__('Auto-renew')" />
+                <div class="flex items-center">
+                    <flux:checkbox
+                        wire:model="autoRenew"
+                        :label="__('Auto-renew')"
+                        wire:disabled="renewsAt === ''"
+                    />
+                </div>
             </div>
+
+            @if ($renewsAt === '')
+                <p class="text-xs text-ink-muted">{{ __('Auto-renew applies once a next renewal date is set.') }}</p>
+            @endif
 
             <flux:input wire:model="url" :label="__('URL')" type="url" />
             <flux:textarea wire:model="notes" :label="__('Notes')" />

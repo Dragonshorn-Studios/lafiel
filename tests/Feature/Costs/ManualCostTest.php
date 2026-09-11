@@ -378,3 +378,21 @@ test('a failed save keeps the slide-over open', function () {
 test('the costs table shows the nothing-here empty state', function () {
     costsPage()->assertSee(__('Nothing here'));
 });
+
+test('auto renew without a renewal date is not presented as persistable', function () {
+    costsPage()
+        ->call('add')
+        ->set('autoRenew', true)
+        ->assertSee(__('Auto-renew applies once a next renewal date is set.'));
+
+    costsPage()
+        ->set('name', 'No date service')
+        ->set('category', 'saas')
+        ->set('amount', '5.00')
+        ->set('currency', 'PLN')
+        ->set('period', 'monthly')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect(Renewal::query()->count())->toBe(0);
+});
