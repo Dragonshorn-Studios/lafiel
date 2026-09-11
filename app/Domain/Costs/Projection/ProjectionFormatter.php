@@ -12,31 +12,60 @@ use App\Domain\Support\ValueObjects\Money;
  *   ~187.42 PLN/mo
  *   187.42 PLN/mo + 2 unknown
  *   1240.00 PLN/yr
+ *
+ * Amounts held in currencies other than the display currency are never
+ * converted; otherCurrencies() renders them as their own labels so
+ * known spend cannot silently disappear from an Overview.
  */
 class ProjectionFormatter
 {
     public function monthly(ProjectionResult $result, ?string $currency = null): string
     {
-        return $this->format($result, $currency, suffix: '/mo');
+        return $this->format($result, $currency, monthly: true);
     }
 
     public function annual(ProjectionResult $result, ?string $currency = null): string
     {
-        return $this->format($result, $currency, suffix: '/yr');
+        return $this->format($result, $currency, monthly: false);
     }
 
-    private function format(ProjectionResult $result, ?string $currency, string $suffix): string
+    /**
+     * Monthly labels for every currency other than the display currency,
+     * in stable currency order.
+     *
+     * @return list<string>
+     */
+    public function otherCurrencies(ProjectionResult $result, ?string $display = null): array
     {
-        $currency ??= (string) config('costs.display_currency', 'PLN');
+        $display ??= $this->displayCurrency();
+
+        $labels = [];
+
+        foreach ($result->currencies() as $total) {
+            if ($total->currency === $display) {
+                continue;
+            }
+
+            $labels[] = Money::ofMinor($total->monthlyMinor, $total->currency)->majorAmount()
+                .' '.$total->currency.'/mo';
+        }
+
+        return $labels;
+    }
+
+    private function format(ProjectionResult $result, ?string $currency, bool $monthly): string
+    {
+        $currency ??= $this->displayCurrency();
 
         $total = $result->forCurrency($currency);
 
-        $label = $total === null
-            ? Money::ofMinor(0, $currency)->majorAmount()." $currency$suffix"
-            : Money::ofMinor(
-                $suffix === '/mo' ? $total->monthlyMinor : $total->annualMinor,
-                $currency,
-            )->majorAmount()." $currency$suffix";
+        $minor = $total === null
+            ? 0
+            : ($monthly ? $total->monthlyMinor : $total->annualMinor);
+
+        $suffix = $monthly ? '/mo' : '/yr';
+
+        $label = Money::ofMinor($minor, $currency)->majorAmount()." $currency$suffix";
 
         if ($result->estimateCount > 0) {
             $label = '~'.$label;
@@ -47,5 +76,10 @@ class ProjectionFormatter
         }
 
         return $label;
+    }
+
+    private function displayCurrency(): string
+    {
+        return (string) config('costs.display_currency', 'PLN');
     }
 }

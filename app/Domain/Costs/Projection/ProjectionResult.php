@@ -6,7 +6,8 @@ namespace App\Domain\Costs\Projection;
  * The complete projection result for one date: per-currency totals plus
  * the completeness counters. Unknown amounts stay outside the known
  * totals and are counted; the same goes for estimates, stale evidence,
- * and unresolved shared charges.
+ * and unresolved shared charges. Totals are exposed through accessors
+ * so consumers cannot inject lines that bypassed the rounded-once sum.
  */
 final readonly class ProjectionResult
 {
@@ -15,7 +16,7 @@ final readonly class ProjectionResult
      */
     public function __construct(
         public string $calculationVersion,
-        public array $byCurrency,
+        private array $byCurrency,
         public int $unknownCount = 0,
         public int $estimateCount = 0,
         public int $staleCount = 0,
@@ -29,6 +30,14 @@ final readonly class ProjectionResult
     }
 
     /**
+     * @return list<CurrencyTotal>
+     */
+    public function currencies(): array
+    {
+        return array_values($this->byCurrency);
+    }
+
+    /**
      * The snapshot-ready breakdown: every winning charge line, grouped
      * by currency, plus the completeness counters.
      *
@@ -39,7 +48,7 @@ final readonly class ProjectionResult
         $lines = [];
 
         foreach ($this->byCurrency as $total) {
-            foreach ($total->lines as $line) {
+            foreach ($total->lines() as $line) {
                 $lines[] = [
                     'cost_item_id' => $line->costItemId,
                     'logical_charge_key' => $line->logicalChargeKey,

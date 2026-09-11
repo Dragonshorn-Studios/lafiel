@@ -6,24 +6,28 @@ use App\Domain\Support\ValueObjects\Rational;
 
 /**
  * Rounded, presented totals for one currency. Monthly and annual
- * equivalents are summed exactly and rounded once, half-even.
+ * equivalents are summed exactly and rounded once, half-even. The only
+ * way to build one is through the accumulator factory, so the
+ * rounded-once invariant cannot be bypassed by callers.
  */
 final readonly class CurrencyTotal
 {
-    public function __construct(
+    /**
+     * @var list<ChargeLine>
+     */
+    private array $lines;
+
+    /**
+     * @param  list<ChargeLine>  $lines
+     */
+    private function __construct(
         public string $currency,
         public int $monthlyMinor,
         public int $annualMinor,
         public int $oneTimeMinor,
-        /**
-         * @var list<ChargeLine>
-         */
-        public array $lines,
-    ) {}
-
-    public static function empty(string $currency): self
-    {
-        return new self($currency, 0, 0, 0, []);
+        array $lines,
+    ) {
+        $this->lines = $lines;
     }
 
     /**
@@ -38,5 +42,13 @@ final readonly class CurrencyTotal
             oneTimeMinor: $accumulator['oneTime'],
             lines: $accumulator['lines'],
         );
+    }
+
+    /**
+     * @return list<ChargeLine>
+     */
+    public function lines(): array
+    {
+        return $this->lines;
     }
 }

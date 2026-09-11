@@ -52,7 +52,7 @@ test('a package charge covering many services is counted once', function () {
     $result = projectOn('2026-09-10');
 
     expect($result->forCurrency('PLN')->monthlyMinor)->toEqual(5000);
-    expect(count($result->forCurrency('PLN')->lines))->toEqual(1);
+    expect(count($result->forCurrency('PLN')->lines()))->toEqual(1);
 });
 
 test('invoice actual replaces a subscription quote instead of adding to it', function () {
@@ -73,7 +73,7 @@ test('invoice actual replaces a subscription quote instead of adding to it', fun
     $result = projectOn('2026-09-10');
 
     expect($result->forCurrency('PLN')->monthlyMinor)->toEqual(8100);
-    expect(count($result->forCurrency('PLN')->lines))->toEqual(1);
+    expect(count($result->forCurrency('PLN')->lines()))->toEqual(1);
 });
 
 test('a conscious manual override outranks an invoice actual', function () {
@@ -269,6 +269,25 @@ test('the formatter emits the allowed display forms', function () {
 
 test('the result carries the calculation version for snapshots', function () {
     expect(projectOn('2026-09-10')->calculationVersion)->toEqual('v1');
+});
+
+test('the annual display form renders the yearly equivalent', function () {
+    CostItem::factory()->create(['amount_minor' => 18742, 'currency' => 'PLN']);
+
+    expect(app(ProjectionFormatter::class)->annual(projectOn('2026-09-10')))
+        ->toEqual('2249.04 PLN/yr');
+});
+
+test('non-display-currency spend is surfaced as its own label, never converted', function () {
+    CostItem::factory()->create(['amount_minor' => 18742, 'currency' => 'PLN']);
+    CostItem::factory()->create(['amount_minor' => 999, 'currency' => 'EUR']);
+
+    $formatter = app(ProjectionFormatter::class);
+    $result = projectOn('2026-09-10');
+
+    expect($formatter->monthly($result))->toEqual('187.42 PLN/mo');
+    expect($formatter->otherCurrencies($result))->toEqual(['9.99 EUR/mo']);
+    expect($formatter->otherCurrencies($result, 'EUR'))->toEqual(['187.42 PLN/mo']);
 });
 
 test('the breakdown is snapshot ready', function () {
