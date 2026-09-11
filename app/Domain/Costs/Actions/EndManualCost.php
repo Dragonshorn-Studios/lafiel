@@ -3,7 +3,6 @@
 namespace App\Domain\Costs\Actions;
 
 use App\Domain\Costs\Models\CostItem;
-use App\Domain\Inventory\Models\Service;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -12,33 +11,29 @@ use Illuminate\Validation\ValidationException;
 class EndManualCost
 {
     /**
-     * End a manual service's open cost item. The item leaves future
-     * projections and stays in history.
+     * End a manual charge. The end date is the item's last charged day:
+     * the item leaves future projections and stays in history. Ending an
+     * already-ended item is a safe no-op.
      *
      * @param  array<string, mixed>  $input
      *
      * @throws ValidationException
      */
-    public function end(Service $service, array $input = []): void
+    public function end(CostItem $costItem, array $input = []): void
     {
         $validated = Validator::make($input, [
             'valid_to' => ['nullable', 'date'],
         ])->validate();
 
-        DB::transaction(function () use ($service, $validated): void {
-            $open = CostItem::query()
-                ->where('logical_charge_key', sprintf('manual:service:%d', $service->id))
-                ->whereNull('valid_to')
-                ->first();
-
-            if ($open === null) {
+        DB::transaction(function () use ($costItem, $validated): void {
+            if ($costItem->valid_to !== null) {
                 return;
             }
 
-            $open->valid_to = isset($validated['valid_to'])
+            $costItem->valid_to = isset($validated['valid_to'])
                 ? new CarbonImmutable($validated['valid_to'])->endOfDay()
                 : new CarbonImmutable()->endOfDay();
-            $open->save();
+            $costItem->save();
         });
     }
 }

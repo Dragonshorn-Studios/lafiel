@@ -22,6 +22,7 @@ new #[Title('Overview')] class extends Component {
         return [
             'monthly' => $formatter->monthly($result),
             'annual' => $formatter->annual($result),
+            'otherCurrencies' => $formatter->otherCurrencies($result),
             'unknownCount' => $result->unknownCount,
             'estimateCount' => $result->estimateCount,
             'staleCount' => $result->staleCount,
@@ -40,6 +41,11 @@ new #[Title('Overview')] class extends Component {
         <p class="font-mono text-xl font-semibold tabular-nums" data-test="overview-annual">{{ $this->summary['annual'] }}</p>
 
         <div class="mt-4 flex flex-wrap gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            @foreach ($this->summary['otherCurrencies'] as $label)
+                <span class="rounded-full bg-zinc-100 px-3 py-1 dark:bg-neutral-800" data-test="overview-other-currency">
+                    {{ $label }}
+                </span>
+            @endforeach
             @if ($this->summary['unknownCount'] > 0)
                 <span class="rounded-full bg-zinc-100 px-3 py-1 dark:bg-neutral-800" data-test="overview-unknown">
                     {{ __(':n unknown', ['n' => $this->summary['unknownCount']]) }}

@@ -12,16 +12,20 @@ use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class CreateManualCost
 {
     /**
-     * Create a manual service with its cost item, renewal, and optional
-     * coverage. When `covers_service_id` points at an existing service,
-     * no new service is created: the cost overlays that service through
-     * the same mechanism a provider-discovered service would use.
+     * Create one manual charge with optional renewal and coverage. Every
+     * charge carries its own logical charge key, so several independent
+     * charges on the same service (a base fee plus an add-on, or two
+     * overlays) coexist and each is counted once by the projection.
+     * When `covers_service_id` points at an existing service, no new
+     * service is created: the charge overlays that service through the
+     * same mechanism a provider-discovered service would use.
      *
      * @param  array<string, mixed>  $input
      *
@@ -34,10 +38,11 @@ class CreateManualCost
         return DB::transaction(function () use ($validated): CostItem {
             $service = $this->resolveService($validated);
             $validFrom = $validated['valid_from']->startOfDay();
+            $chargeKey = sprintf('manual:charge:%s', Str::uuid()->toString());
 
             $costItem = $service->costItems()->create([
-                'identity_key' => sprintf('manual:service:%d:from:%s', $service->id, $validFrom->format('Y-m-d')),
-                'logical_charge_key' => sprintf('manual:service:%d', $service->id),
+                'identity_key' => sprintf('%s:from:%s', $chargeKey, $validFrom->format('Y-m-d')),
+                'logical_charge_key' => $chargeKey,
                 'source_kind' => 'manual',
                 'charge_kind' => $validated['period'] === Period::OneTime ? ChargeKind::OneTime : ChargeKind::RecurringFixed,
                 'period' => $validated['period'],
@@ -46,7 +51,7 @@ class CreateManualCost
                 'amount_state' => $validated['amount'] === null ? 'unknown' : 'known',
                 'evidence_state' => 'manual',
                 'valid_from' => $validated['valid_from'],
-                'valid_to' => $validated['valid_to'] ?? null,
+                'valid_to' => $validated['valid_to'],
                 'observed_at' => now(),
                 'notes' => $validated['notes'],
             ]);
@@ -102,7 +107,7 @@ class CreateManualCost
                 Rule::requiredIf(! filter_var($input['unknown_amount'] ?? false, FILTER_VALIDATE_BOOL)),
                 'nullable', 'string', 'regex:/^\s*-?\d+(?:\.\d{1,2})?\s*$/',
             ],
-            'currency' => ['required', 'string', 'size:3'],
+            'currency' => ['required', 'string', 'regex:/^[A-Za-z]{3}$/'],
             'period' => ['required', Rule::enum(Period::class)],
             'valid_from' => ['required', 'date'],
             'valid_to' => ['nullable', 'date', 'after_or_equal:valid_from'],

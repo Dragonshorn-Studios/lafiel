@@ -6,7 +6,6 @@ use App\Domain\Costs\Actions\UpdateManualCost;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Inventory\Models\Service;
-use Illuminate\Support\CarbonImmutable;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -40,7 +39,7 @@ new #[Title('Costs')] class extends Component {
 
     public ?int $coversServiceId = null;
 
-    public ?int $editingServiceId = null;
+    public ?int $editingCostItemId = null;
 
     /**
      * The initial price fields, to detect a price change on save.
@@ -93,10 +92,10 @@ new #[Title('Costs')] class extends Component {
             'covers_service_id' => $this->coversServiceId,
         ];
 
-        if ($this->editingServiceId !== null) {
+        if ($this->editingCostItemId !== null) {
             $input['price_changed'] = $this->priceChanged();
 
-            app(UpdateManualCost::class)->update(Service::findOrFail($this->editingServiceId), $input);
+            app(UpdateManualCost::class)->update(CostItem::findOrFail($this->editingCostItemId), $input);
         } else {
             app(CreateManualCost::class)->create($input);
         }
@@ -104,47 +103,47 @@ new #[Title('Costs')] class extends Component {
         $this->resetForm();
     }
 
-    public function edit(int $serviceId): void
+    public function edit(int $costItemId): void
     {
-        $service = Service::findOrFail($serviceId);
-
         $open = CostItem::query()
-            ->where('logical_charge_key', sprintf('manual:service:%d', $service->id))
+            ->whereKey($costItemId)
             ->whereNull('valid_to')
-            ->with('renewal')
+            ->with(['services', 'renewal'])
             ->first();
 
         if ($open === null) {
             return;
         }
 
-        $this->editingServiceId = $service->id;
-        $this->vendor = (string) $service->vendor;
-        $this->name = $service->name;
-        $this->category = $service->category;
+        $service = $open->services->first();
+
+        $this->editingCostItemId = $open->id;
+        $this->vendor = (string) $service?->vendor;
+        $this->name = (string) $service?->name;
+        $this->category = (string) $service?->category;
         $this->unknownAmount = $open->amount_state->value === 'unknown';
-        $this->amount = $open->amount_minor !== null ? number_format($open->amount_minor / 100, 2, '.', '') : '';
+        $this->amount = $open->money()?->majorAmount() ?? '';
         $this->currency = $open->currency ?? 'PLN';
         $this->period = $open->period->value;
         $this->validFrom = $open->valid_from->format('Y-m-d');
         $this->validTo = $open->valid_to?->format('Y-m-d') ?? '';
         $this->renewsAt = $open->renewal?->renews_at->format('Y-m-d') ?? '';
         $this->autoRenew = $open->renewal?->auto_renew ?? false;
-        $this->url = (string) $service->url;
+        $this->url = (string) $service?->url;
         $this->notes = (string) $open->notes;
         $this->loadedPrice = ['amount' => $this->amount, 'currency' => $this->currency, 'period' => $this->period];
     }
 
-    public function end(int $serviceId): void
+    public function end(int $costItemId): void
     {
-        app(EndManualCost::class)->end(Service::findOrFail($serviceId));
+        app(EndManualCost::class)->end(CostItem::findOrFail($costItemId));
 
         $this->resetForm();
     }
 
     public function resetForm(): void
     {
-        $this->reset('vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingServiceId');
+        $this->reset('vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingCostItemId');
         $this->validFrom = now()->format('Y-m-d');
         $this->currency = 'PLN';
         $this->period = 'monthly';
@@ -190,7 +189,7 @@ new #[Title('Costs')] class extends Component {
                         @if ($item->amount_state->value === 'unknown')
                             {{ __('unknown') }}
                         @else
-                            {{ \App\Domain\Support\ValueObjects\Money::ofMinor($item->amount_minor, (string) $item->currency)->majorAmount() }} {{ $item->currency }}
+                            {{ $item->money()?->majorAmount() }} {{ $item->currency }}
                         @endif
                     </flux:table.cell>
                     <flux:table.cell>{{ $item->period->value }}</flux:table.cell>
@@ -201,8 +200,8 @@ new #[Title('Costs')] class extends Component {
                         @endif
                     </flux:table.cell>
                     <flux:table.cell>
-                        <flux:button size="xs" wire:click="edit({{ $service->id }})">{{ __('Edit') }}</flux:button>
-                        <flux:button size="xs" variant="danger" wire:click="end({{ $service->id }})" wire:confirm="{{ __('End this cost?') }}">
+                        <flux:button size="xs" wire:click="edit({{ $item->id }})">{{ __('Edit') }}</flux:button>
+                        <flux:button size="xs" variant="danger" wire:click="end({{ $item->id }})" wire:confirm="{{ __('End this cost?') }}">
                             {{ __('End') }}
                         </flux:button>
                     </flux:table.cell>
@@ -213,7 +212,7 @@ new #[Title('Costs')] class extends Component {
 
     <flux:card class="max-w-2xl">
         <flux:heading class="mb-4">
-            {{ $editingServiceId !== null ? __('Edit cost') : __('Add manual cost') }}
+            {{ $editingCostItemId !== null ? __('Edit cost') : __('Add manual cost') }}
         </flux:heading>
 
         <form wire:submit="save" class="space-y-4">
@@ -224,7 +223,7 @@ new #[Title('Costs')] class extends Component {
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="category" :label="__('Category')" required placeholder="ai, domain, license, saas…" />
-                <flux:select wire:model="coversServiceId" :label="__('Cover an existing service')">
+                <flux:select wire:model="coversServiceId" :label="__('Cover an existing service')" :disabled="$editingCostItemId !== null">
                     <flux:select.option :value="null">{{ __('— new service —') }}</flux:select.option>
                     @foreach ($this->overlayCandidates as $candidate)
                         <flux:select.option :value="$candidate->id">{{ $candidate->name }}</flux:select.option>
@@ -259,7 +258,7 @@ new #[Title('Costs')] class extends Component {
 
             <div class="flex gap-2">
                 <flux:button variant="primary" type="submit" data-test="save-cost">{{ __('Save') }}</flux:button>
-                @if ($editingServiceId !== null)
+                @if ($editingCostItemId !== null)
                     <flux:button type="button" wire:click="resetForm">{{ __('Cancel') }}</flux:button>
                 @endif
             </div>

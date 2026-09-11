@@ -17,93 +17,141 @@ use Illuminate\Validation\ValidationException;
 class UpdateManualCost
 {
     /**
-     * Update a manual service and its open cost item. Price-affecting
+     * Update a manual charge and the service it bills for. Price-affecting
      * changes (amount, currency, period) never rewrite the existing fact:
      * the open item is closed and a new item opens under the same logical
-     * charge, so history keeps every price the service ever had.
+     * charge, so history keeps every price the charge ever had. Renewals
+     * always follow the newest version of the charge.
      *
      * @param  array<string, mixed>  $input
      *
-     * @throws ValidationException
+     * @throws ValidationException when the charge has already been ended
      */
-    public function update(Service $service, array $input): CostItem
+    public function update(CostItem $requested, array $input): CostItem
     {
         $validated = $this->validate($input);
 
-        return DB::transaction(function () use ($service, $validated): CostItem {
-            $service->vendor = $validated['vendor'];
-            $service->name = $validated['name'];
-            $service->category = $validated['category'];
-            $service->url = $validated['url'];
-            $service->save();
+        return DB::transaction(function () use ($requested, $validated): CostItem {
+            $open = $this->openVersion($requested);
+            $service = $open->services()->first();
 
-            $open = $this->openCostItem($service);
-            $changeDate = $validated['price_changed'] ? $this->now()->startOfDay() : $open->valid_from->startOfDay();
+            if ($service !== null) {
+                $service->vendor = $validated['vendor'];
+                $service->name = $validated['name'];
+                $service->category = $validated['category'];
+                $service->url = $validated['url'];
+                $service->save();
+            }
+
+            $changeDate = $validated['price_changed']
+                ? new CarbonImmutable()->startOfDay()
+                : $open->valid_from->startOfDay();
 
             if ($validated['price_changed']) {
                 $open->valid_to = $changeDate->subDay()->endOfDay();
                 $open->save();
             }
 
-            $costItem = $validated['price_changed'] ? $service->costItems()->create([
-                'identity_key' => sprintf('manual:service:%d:from:%s', $service->id, $changeDate->format('Y-m-d')),
-                'logical_charge_key' => $open->logical_charge_key,
-                'source_kind' => 'manual',
-                'charge_kind' => $validated['period'] === Period::OneTime ? ChargeKind::OneTime : ChargeKind::RecurringFixed,
-                'period' => $validated['period'],
-                'amount_minor' => $validated['amount']?->amountMinor,
-                'currency' => $validated['amount']?->currency,
-                'amount_state' => $validated['amount'] === null ? 'unknown' : 'known',
-                'evidence_state' => 'manual',
-                'valid_from' => $changeDate,
-                'valid_to' => $validated['valid_to'] ?? null,
-                'observed_at' => $this->now(),
-                'notes' => $validated['notes'],
-            ]) : tap($open)->update([
-                'valid_from' => $validated['valid_from'],
-                'valid_to' => $validated['valid_to'] ?? null,
-                'notes' => $validated['notes'],
-            ]);
+            $costItem = $validated['price_changed']
+                ? $this->openNewVersion($open, $changeDate, $validated)
+                : tap($open)->update([
+                    'valid_from' => $validated['valid_from'],
+                    'valid_to' => $validated['valid_to'],
+                    'notes' => $validated['notes'],
+                ]);
 
-            $renewal = Renewal::query()->firstOrNew(['cost_item_id' => $open->id]);
-
-            if ($validated['price_changed'] && $renewal->exists) {
-                $renewal->cost_item_id = $costItem->id;
-            }
-
-            if ($validated['renews_at'] !== null) {
-                $renewal->renews_at = $validated['renews_at'];
-                $renewal->auto_renew = $validated['auto_renew'];
-                $renewal->save();
-            } elseif ($renewal->exists) {
-                $renewal->delete();
-            }
+            $this->updateRenewal($open, $costItem, $validated);
 
             return $costItem;
         });
     }
 
-    private function openCostItem(Service $service): CostItem
+    /**
+     * The newest version of the charge must still be open. A stale client
+     * holding an ended item is refused instead of resurrecting history.
+     */
+    private function openVersion(CostItem $requested): CostItem
     {
         $open = CostItem::query()
-            ->where('logical_charge_key', sprintf('manual:service:%d', $service->id))
+            ->where('logical_charge_key', $requested->logical_charge_key)
             ->whereNull('valid_to')
-            ->orderByDesc('valid_from')
             ->first();
 
-        if ($open === null) {
-            $open = CostItem::query()
-                ->where('logical_charge_key', sprintf('manual:service:%d', $service->id))
-                ->orderByDesc('valid_from')
-                ->firstOrFail();
+        if ($open === null || $open->isNot($requested)) {
+            throw ValidationException::withMessages([
+                'cost' => __('This cost has already been ended or changed elsewhere. Reload and try again.'),
+            ]);
         }
 
         return $open;
     }
 
-    private function now(): CarbonImmutable
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function openNewVersion(CostItem $open, CarbonImmutable $changeDate, array $validated): CostItem
     {
-        return new CarbonImmutable;
+        // Versions of one charge may start on the same day (a price fixed
+        // right after creation), so the identity key carries a version
+        // suffix once the plain date key is taken.
+        $base = sprintf('%s:from:%s', $open->logical_charge_key, $changeDate->format('Y-m-d'));
+        $identity = $base;
+        $version = 1;
+
+        while (CostItem::query()->where('identity_key', $identity)->exists()) {
+            $version++;
+            $identity = $base.':v'.$version;
+        }
+
+        $costItem = CostItem::create([
+            'identity_key' => $identity,
+            'logical_charge_key' => $open->logical_charge_key,
+            'source_kind' => 'manual',
+            'charge_kind' => $validated['period'] === Period::OneTime ? ChargeKind::OneTime : ChargeKind::RecurringFixed,
+            'period' => $validated['period'],
+            'amount_minor' => $validated['amount']?->amountMinor,
+            'currency' => $validated['amount']?->currency,
+            'amount_state' => $validated['amount'] === null ? 'unknown' : 'known',
+            'evidence_state' => 'manual',
+            'valid_from' => $changeDate,
+            'valid_to' => $validated['valid_to'],
+            'observed_at' => new CarbonImmutable,
+            'notes' => $validated['notes'],
+        ]);
+
+        // The new version covers the same services as the closed one.
+        $costItem->services()->attach($open->services()->pluck('services.id'));
+
+        return $costItem;
+    }
+
+    /**
+     * Renewals always point at the newest version of the charge. On a
+     * price change every renewal on the closed item moves to the new one
+     * before the user's edit is applied, so a first-time renewal cannot
+     * land on a closed item and an existing one cannot be orphaned.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function updateRenewal(CostItem $closed, CostItem $open, array $validated): void
+    {
+        if ($open->isNot($closed)) {
+            Renewal::query()->where('cost_item_id', $closed->id)->update(['cost_item_id' => $open->id]);
+        }
+
+        $renewal = Renewal::query()->firstOrNew(['cost_item_id' => $open->id]);
+
+        if ($validated['renews_at'] !== null) {
+            $renewal->renews_at = $validated['renews_at'];
+            $renewal->auto_renew = $validated['auto_renew'];
+            $renewal->save();
+
+            return;
+        }
+
+        if ($renewal->exists) {
+            $renewal->delete();
+        }
     }
 
     /**
@@ -123,7 +171,7 @@ class UpdateManualCost
                 Rule::requiredIf(! filter_var($input['unknown_amount'] ?? false, FILTER_VALIDATE_BOOL)),
                 'nullable', 'string', 'regex:/^\s*-?\d+(?:\.\d{1,2})?\s*$/',
             ],
-            'currency' => ['required', 'string', 'size:3'],
+            'currency' => ['required', 'string', 'regex:/^[A-Za-z]{3}$/'],
             'period' => ['required', Rule::enum(Period::class)],
             'valid_from' => ['required', 'date'],
             'valid_to' => ['nullable', 'date', 'after_or_equal:valid_from'],
