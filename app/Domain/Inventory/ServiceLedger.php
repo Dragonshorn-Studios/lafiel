@@ -2,63 +2,20 @@
 
 namespace App\Domain\Inventory;
 
-use App\Domain\Costs\Enums\EvidenceState;
 use App\Domain\Costs\Enums\SourceKind;
 use App\Domain\Costs\Models\CostItem;
+use App\Domain\Costs\Projection\ChargeLine;
 use App\Domain\Costs\Projection\CostProjector;
 use App\Domain\Inventory\Models\Service;
-use App\Domain\Support\ValueObjects\Money;
 use App\Domain\Support\ValueObjects\Rational;
 use Carbon\CarbonImmutable;
 
 /**
- * One row per service for the Services view: the service identity plus
- * a roll-up of its open winning charges — monthly equivalent summed as
- * an exact rational per currency and rounded once per row, unknown and
- * stale charges counted rather than hidden, and a package flag when any
- * charge covers more than one service. Source-level detail lives on the
- * service's detail view; the table never sums money by itself.
- */
-final readonly class ServiceLedgerRow
-{
-    /**
-     * @param  list<array{period: string, amount: ?Money, evidence: EvidenceState, source_ref: ?string}>  $charges
-     */
-    public function __construct(
-        public Service $service,
-        public string $provider,
-        public int $chargeCount,
-        public ?string $billing,
-        public ?Money $sourceAmount,
-        public ?int $monthlyMinor,
-        public ?string $monthlyCurrency,
-        public int $unknownCount,
-        public int $staleCount,
-        public bool $package,
-        public ?CarbonImmutable $renewsAt,
-        public ?bool $autoRenew,
-        public array $charges,
-        public ?int $manualChargeId = null,
-    ) {}
-
-    /**
-     * Freshness for the table: how the row's evidence ages. Manual
-     * charges never go stale, so a purely manual service reads Manual.
-     */
-    public function freshness(): string
-    {
-        if ($this->staleCount > 0) {
-            return 'stale';
-        }
-
-        return $this->provider === 'Manual' ? 'manual' : 'synced';
-    }
-}
-
-/**
  * Read model behind the Services table. Winners come from the
  * projector, so evidence selection and equivalents are computed in
- * exactly one place.
+ * exactly one place. One row per service — manual and
+ * provider-discovered — with a roll-up of its open winning charges;
+ * the table never sums money by itself.
  */
 class ServiceLedger
 {
@@ -70,7 +27,7 @@ class ServiceLedger
     public function rows(CarbonImmutable $now): array
     {
         $services = Service::query()
-            ->with(['providerAccount', 'costItems.renewal'])
+            ->with('providerAccount')
             ->orderBy('name')
             ->get();
 
@@ -138,11 +95,15 @@ class ServiceLedger
 
             if ($amount === null || $monthlyEquivalent === null) {
                 // Known amount with an unknown cadence counts as
-                // unknown too: it cannot be normalized to a month.
+                // unknown too — including one-time charges, which have
+                // no monthly equivalent by definition.
                 $unknownCount++;
             } elseif ($monthlyCurrency !== null && $monthlyCurrency !== $amount->currency) {
-                // Never mix currencies inside one row's equivalent.
+                // Never mix currencies inside one row's equivalent; the
+                // un-mixable charge is counted as unknown instead of
+                // silently vanishing from the badges.
                 $mixedCurrency = true;
+                $unknownCount++;
             } else {
                 $monthlyCurrency ??= $amount->currency;
                 $monthly = $monthly->add($monthlyEquivalent);
@@ -174,7 +135,7 @@ class ServiceLedger
 
         return new ServiceLedgerRow(
             service: $service,
-            provider: $providerName !== null && $providerName !== '' ? $providerName : 'Manual',
+            provider: $providerName !== null && $providerName !== '' ? $providerName : ChargeLine::MANUAL_PROVIDER,
             chargeCount: count($charges),
             billing: $billing,
             sourceAmount: $sourceAmount,

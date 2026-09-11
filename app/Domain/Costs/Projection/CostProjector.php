@@ -136,7 +136,7 @@ class CostProjector
     public function winners(CarbonImmutable $onDate): array
     {
         $items = CostItem::query()
-            ->with('services.providerAccount')
+            ->with(['services.providerAccount', 'renewal'])
             ->whereDate('valid_from', '<=', $onDate)
             ->where(fn ($query) => $query
                 ->whereNull('valid_to')

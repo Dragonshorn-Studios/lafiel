@@ -59,6 +59,22 @@ it('adds up to exactly the rounded-once monthly total', function () {
         ->and($total)->toBe(5365);
 });
 
+it('keeps one-time charges out of the recurring provider split', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $service = Service::factory()->discovered($account)->create();
+
+    chargeWithService(CostItem::factory()->create(['amount_minor' => 5000]), $service);
+    chargeWithService(CostItem::factory()->create(['amount_minor' => 3000, 'period' => 'one_time']), $service);
+
+    $result = app(CostProjector::class)->project(new CarbonImmutable('2026-09-10 12:00:00'));
+
+    // The one-time 30.00 belongs to no provider's monthly share; the
+    // recurring 50.00 is attributed whole.
+    expect($result->providerSplit('PLN'))->toBe(['OVHcloud' => 5000])
+        ->and($result->forCurrency('PLN')->monthlyMinor)->toBe(5000)
+        ->and($result->oneTimeCount)->toBe(1);
+});
+
 it('returns an empty split and zero priced count when nothing is priced', function () {
     CostItem::factory()->unknownAmount()->create();
 

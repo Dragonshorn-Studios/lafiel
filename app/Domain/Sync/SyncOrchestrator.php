@@ -239,8 +239,14 @@ final class SyncOrchestrator
 
                 // Ending an unreported charge takes positive evidence that
                 // the whole cost phase was complete — not just the overall
-                // flag: a per-capability partial must end nothing.
-                $fullyComplete = $costBatch->completeness === BatchCompleteness::Complete
+                // flag: a per-capability partial must end nothing. The
+                // inventory must be complete too: facts are built only for
+                // inventoried services, so a partial inventory hides a
+                // service whose metadata fetch failed, and ending its
+                // charge would treat the absence as cancellation — the
+                // thing the lifecycle refuses to do.
+                $fullyComplete = $inventoryBatch->completeness === BatchCompleteness::Complete
+                    && $costBatch->completeness === BatchCompleteness::Complete
                     && collect($costCapabilities)->every(
                         fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
                     );

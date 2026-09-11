@@ -5,6 +5,7 @@ use App\Domain\Costs\Actions\EndManualCost;
 use App\Domain\Costs\Actions\UpdateManualCost;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
+use Flux\Flux;
 use App\Domain\Inventory\Models\Service;
 use Carbon\CarbonImmutable;
 use Livewire\Attributes\Computed;
@@ -110,9 +111,18 @@ new #[Title('Services')] class extends Component {
         ];
 
         if ($this->editingCostItemId !== null) {
+            $item = CostItem::find($this->editingCostItemId);
+
+            if ($item === null) {
+                Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+                $this->closePanel();
+
+                return;
+            }
+
             $input['price_changed'] = $this->priceChanged();
 
-            app(UpdateManualCost::class)->update(CostItem::findOrFail($this->editingCostItemId), $input);
+            app(UpdateManualCost::class)->update($item, $input);
         } else {
             app(CreateManualCost::class)->create($input);
         }
@@ -130,6 +140,8 @@ new #[Title('Services')] class extends Component {
             ->first();
 
         if ($open === null) {
+            Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+
             return;
         }
 
@@ -155,7 +167,15 @@ new #[Title('Services')] class extends Component {
 
     public function end(int $costItemId): void
     {
-        app(EndManualCost::class)->end(CostItem::findOrFail($costItemId));
+        $item = CostItem::find($costItemId);
+
+        if ($item === null) {
+            Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+
+            return;
+        }
+
+        app(EndManualCost::class)->end($item);
 
         $this->resetForm();
     }

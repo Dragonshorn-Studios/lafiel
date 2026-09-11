@@ -19,6 +19,13 @@ use App\Domain\Support\ValueObjects\Rational;
  */
 final readonly class ChargeLine
 {
+    /**
+     * Presentation label for charges with no provider account behind
+     * them. Load-bearing: freshness and provider grouping compare
+     * against it, so never pass it through translation.
+     */
+    public const MANUAL_PROVIDER = 'Manual';
+
     public function __construct(
         public int $costItemId,
         public string $logicalChargeKey,
@@ -30,7 +37,7 @@ final readonly class ChargeLine
         public Rational $monthlyEquivalent,
         public Rational $annualEquivalent,
         public bool $isStale,
-        public string $provider = 'Manual',
+        public string $provider = self::MANUAL_PROVIDER,
     ) {}
 
     public static function fromCostItem(CostItem $item, Money $amount, Rational $monthly, Rational $annual, bool $isStale): self
@@ -51,7 +58,7 @@ final readonly class ChargeLine
     }
 
     /**
-     * The first distinct provider account behind the charge's services.
+     * The first provider account name behind the charge's services.
      * An overlay charge may span providers; v1 presents its first.
      */
     private static function providerLabel(CostItem $item): string
@@ -64,6 +71,6 @@ final readonly class ChargeLine
             }
         }
 
-        return 'Manual';
+        return self::MANUAL_PROVIDER;
     }
 }

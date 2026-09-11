@@ -278,6 +278,59 @@ it('lets a manual override replace the quote without adding both', function () {
     expect($result->forCurrency('EUR')->monthlyMinor)->toBe(999);
 });
 
+it('supersedes a synced charge when the catalog price changes', function () {
+    $api = ovhQuoteFake();
+    $account = ovhQuoteStack($api);
+    ovhQuoteSync($account);
+
+    $vps = chargeFor($account, 'vps-synthetic-01');
+    expect($vps->amount_minor)->toBe(700);
+
+    // The catalog reprices the VPS plan.
+    $repriced = ovhFixture('catalog/vps-eu.json');
+    $repriced['catalog'][0]['products'][0]['pricings'][0]['priceInUtv'] = 900;
+    $repriced['catalog'][0]['products'][0]['pricings'][0]['price']['value'] = 9.0;
+    $api->responses['/order/catalog/formatted/vps'] = $repriced;
+
+    $this->travel(1)->day();
+    $second = ovhQuoteSync($account);
+
+    $open = $vps->refresh();
+
+    expect($second->refresh()->counts['cost_facts']['superseded'])->toBe(1)
+        // Same logical charge: the old version closed, the new one is open.
+        ->and(CostItem::query()->where('logical_charge_key', $vps->logical_charge_key)->count())->toBe(2)
+        ->and($open->valid_to)->not->toBeNull();
+
+    $newVersion = CostItem::query()
+        ->where('logical_charge_key', $vps->logical_charge_key)
+        ->whereNull('valid_to')
+        ->sole();
+    expect($newVersion->amount_minor)->toBe(900)
+        ->and($newVersion->id)->not->toBe($vps->id);
+});
+
+it('degrades to an unknown price when a catalog price is unparseable', function () {
+    $api = ovhQuoteFake();
+
+    // A three-decimal value without the minor-unit field cannot be
+    // expressed exactly; it must degrade to unknown, not crash the run.
+    $vpsCatalog = ovhFixture('catalog/vps-eu.json');
+    unset($vpsCatalog['catalog'][0]['products'][0]['pricings'][0]['priceInUtv']);
+    $vpsCatalog['catalog'][0]['products'][0]['pricings'][0]['price']['value'] = 0.0095;
+    $api->responses['/order/catalog/formatted/vps'] = $vpsCatalog;
+
+    $account = ovhQuoteStack($api);
+
+    $run = ovhQuoteSync($account);
+
+    $vps = chargeFor($account, 'vps-synthetic-01');
+
+    expect($run->refresh()->status)->toBe(SyncStatus::Partial)
+        ->and($vps->amount_state->value)->toBe('unknown')
+        ->and($run->summary['warnings'] ?? [])->toContain('renewal price for [vps-synthetic-01] could not be parsed; left unknown.');
+});
+
 it('ends a renewal charge absent from a later complete run', function () {
     $api = ovhQuoteFake();
     $account = ovhQuoteStack($api);

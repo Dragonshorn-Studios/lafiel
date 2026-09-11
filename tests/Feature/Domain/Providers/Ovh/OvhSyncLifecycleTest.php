@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Domain\Providers\Ovh;
 
+use App\Domain\Costs\Models\CostItem;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
+use App\Domain\Providers\Actions\UpdateOvhCredentials;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Enums\ProviderCapability;
+use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCapabilityState;
@@ -191,10 +194,107 @@ it('never marks a service missing from a partial inventory', function () {
     $run = ovhSync($account);
 
     $ip = Service::query()->where('external_id', 'ip-synthetic-01')->sole();
+    $ipCharge = CostItem::query()
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $account->id))
+        ->sole();
 
     expect($run->refresh()->status)->toBe(SyncStatus::Partial)
         ->and($ip->lifecycle_state)->toBe(ServiceLifecycle::Active)
-        ->and($ip->missing_complete_runs)->toBe(0);
+        ->and($ip->missing_complete_runs)->toBe(0)
+        // A partial inventory hides the IP block, so its renewal charge
+        // is unreported this run — absence must not end it.
+        ->and($run->counts['cost_facts']['ended'] ?? 0)->toBe(0)
+        ->and($ipCharge->refresh()->valid_to)->toBeNull();
+});
+
+it('never re-validates credentials that are verified and unchanged', function () {
+    $api = ovhStack();
+    $account = ovhAccount();
+
+    ovhSync($account);
+    $callsAfterFirst = $api->callCount('/me');
+
+    ovhSync($account);
+
+    expect($api->callCount('/me'))->toBe($callsAfterFirst);
+});
+
+it('re-validates credentials after they are replaced', function () {
+    $api = ovhStack();
+    $account = ovhAccount();
+
+    ovhSync($account);
+    $callsBefore = $api->callCount('/me');
+
+    UpdateOvhCredentials::class;
+    app(UpdateOvhCredentials::class)->update($account, [
+        'display_name' => $account->display_name,
+        'endpoint' => 'ovh-eu',
+        'application_key' => ovhPayload()['application_key'],
+        'application_secret' => ovhPayload()['application_secret'],
+        'consumer_key' => ovhPayload()['consumer_key'],
+    ]);
+
+    ovhSync($account);
+
+    expect($api->callCount('/me'))->toBe($callsBefore + 1);
+});
+
+it('clears a verified credential when the provider rejects it mid-run', function () {
+    $api = ovhStack();
+    $account = ovhAccount();
+
+    ovhSync($account);
+    $credential = $account->credentials()->latest('id')->first();
+    expect($credential->refresh()->verified_at)->not->toBeNull();
+
+    // The verified credential skips validation, so the rejection must
+    // surface mid-run, during the inventory fetch.
+    $api->throwOn('/service', [
+        new InvalidCredentialsException('OVH rejected the credentials for [/service] (HTTP 401).'),
+    ]);
+
+    $run = ovhSync($account);
+
+    expect($run->refresh()->status)->toBe(SyncStatus::Failed)
+        ->and($credential->refresh()->verified_at)->toBeNull();
+});
+
+it('scopes services and charges to their own account', function () {
+    $api = ovhStack();
+    $accountA = ovhAccount();
+
+    // A second account with the same external service names.
+    $accountB = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
+    ProviderCredential::factory()->create([
+        'provider_account_id' => $accountB->id,
+        'payload' => ovhPayload(),
+    ]);
+
+    ovhSync($accountA);
+    ovhSync($accountB);
+
+    foreach ([$accountA, $accountB] as $account) {
+        expect(Service::query()->where('provider_account_id', $account->id)->count())->toBe(4)
+            ->and(CostItem::query()
+                ->where('logical_charge_key', 'like', "ovh:account:{$account->id}:charge:%")
+                ->count())->toBe(4);
+    }
+
+    // Run B omits the IP block for account A only.
+    $api->responses = ovhRunPayload('service-run-b.json');
+    $this->travel(1)->day();
+    ovhSync($accountA);
+
+    $chargeA = CostItem::query()
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $accountA->id))
+        ->sole();
+    $chargeB = CostItem::query()
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $accountB->id))
+        ->sole();
+
+    expect($chargeA->refresh()->valid_to)->not->toBeNull()
+        ->and($chargeB->refresh()->valid_to)->toBeNull();
 });
 
 it('keeps last good data when the listing fails and the capability goes stale', function () {

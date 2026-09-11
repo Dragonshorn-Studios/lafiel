@@ -62,7 +62,11 @@ new #[Title('Providers')] class extends Component {
 
         $this->editingAccountId = $account->id;
         $this->displayName = $account->display_name;
-        $this->endpoint = $account->credentials()->latest('id')->first()?->payload['endpoint'] ?? 'ovh-eu';
+        try {
+            $this->endpoint = $account->credentials()->latest('id')->first()?->payload['endpoint'] ?? 'ovh-eu';
+        } catch (DecryptException) {
+            $this->endpoint = 'ovh-eu';
+        }
         $this->applicationKey = '';
         $this->applicationSecret = '';
         $this->consumerKey = '';
@@ -114,7 +118,16 @@ new #[Title('Providers')] class extends Component {
             return;
         }
 
-        $check = app(TestOvhConnection::class)->check(app(BuildOvhApi::class)->build($credential->payload));
+try {
+            $api = app(BuildOvhApi::class)->build($credential->payload);
+            $check = app(TestOvhConnection::class)->check($api);
+        } catch (InvalidCredentialsException $exception) {
+            $check = ConnectionCheck::rejected($exception->getMessage());
+        } catch (DecryptException) {
+            // A rotated APP_KEY makes the stored payload unreadable; it
+            // is the same human-fixable condition as a rejected probe.
+            $check = ConnectionCheck::rejected(__('Stored credentials are unreadable. Replace them and test again.'));
+        }
 
         if ($check->status === ConnectionStatus::Connected) {
             app(VerifyOvhCredentials::class)->verify($account, $credential);
@@ -233,6 +246,20 @@ new #[Title('Providers')] class extends Component {
         ];
     }
 
+    /**
+     * The stored endpoint for display. A payload that no longer
+     * decrypts (rotated APP_KEY) reads as unreadable instead of
+     * crashing the page; replacing the credentials fixes it.
+     */
+    public function endpointFor(\App\Domain\Providers\Models\ProviderCredential $credential): string
+    {
+        try {
+            return $credential->payload['endpoint'] ?? '—';
+        } catch (DecryptException) {
+            return __('unreadable');
+        }
+    }
+
     private function resetForm(): void
     {
         $this->editingAccountId = null;
@@ -299,7 +326,7 @@ new #[Title('Providers')] class extends Component {
                     </div>
 
                     <p class="mt-2 text-sm text-ink-secondary">
-                        {{ __('OVH · :endpoint', ['endpoint' => $credential?->payload['endpoint'] ?? '—']) }}
+                        {{ __('OVH · :endpoint', ['endpoint' => $credential !== null ? $this->endpointFor($credential) : '—']) }}
                         @if ($account->last_success_at !== null)
                             · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
                         @endif

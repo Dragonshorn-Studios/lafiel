@@ -45,6 +45,19 @@ it('reflects a charge only from the month it started', function () {
     expect(array_column($series, 'minor'))->toBe([10000, 10000, 10000, 10000, 12400, 12400]);
 });
 
+it('anchors labels from month starts so month-end clocks stay distinct', function () {
+    chargeActiveFrom('2025-10-01', 12000);
+
+    // Subtracting months from the 31st overflows in Carbon; the series
+    // must still cover six distinct months ending March 2026.
+    $series = app(SpendHistory::class)->monthly(new CarbonImmutable('2026-03-31 12:00:00'));
+
+    expect(array_column($series, 'label'))->toBe([
+        'Oct 2025', 'Nov 2025', 'Dec 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026',
+    ])
+        ->and(array_column($series, 'minor'))->toBe([12000, 12000, 12000, 12000, 12000, 12000]);
+});
+
 it('reports zero for months without charges', function () {
     chargeActiveFrom('2026-09-01');
 

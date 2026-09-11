@@ -40,8 +40,8 @@ use Carbon\CarbonImmutable;
 final class OvhProviderAdapter implements ProviderAdapter
 {
     /**
-     * Longest route prefixes first, so a nested family is never shadowed
-     * by its parent segment.
+     * Route prefix => [canonical category, provider type]. When adding
+     * entries, a longer prefix must precede any prefix it extends.
      *
      * @var array<string, array{0: string, 1: string}>
      */
@@ -96,6 +96,12 @@ final class OvhProviderAdapter implements ProviderAdapter
 
             try {
                 $service = $api->get('/service/'.$name);
+
+                if (! is_array($service)) {
+                    // A non-array body for a known path is a provider
+                    // response problem, not an inventory gap.
+                    throw new TransientProviderException("OVH returned a malformed body for [/service/{$name}].");
+                }
             } catch (TransientProviderException) {
                 $unavailable++;
 
@@ -151,6 +157,12 @@ final class OvhProviderAdapter implements ProviderAdapter
 
             try {
                 $service = $api->get('/service/'.$name);
+
+                if (! is_array($service)) {
+                    // A non-array body for a known path is a provider
+                    // response problem, not an inventory gap.
+                    throw new TransientProviderException("OVH returned a malformed body for [/service/{$name}].");
+                }
             } catch (TransientProviderException) {
                 $degraded = true;
                 $warnings[] = "renewal facts unavailable for [{$name}]; service metadata failed.";
@@ -176,21 +188,18 @@ final class OvhProviderAdapter implements ProviderAdapter
                     $pricing = $this->catalogPricing($catalog, $service, $period);
 
                     if ($pricing !== null) {
-                        // The amount/currency pair is stored exactly as
-                        // the source states it; Money parses the decimal
-                        // digit by digit, never through a float.
-                        $amount = Money::ofString(
-                            (string) $pricing['price']['value'],
-                            (string) $pricing['price']['currencyCode'],
-                        );
-                        $taxBasis = ($pricing['tax']['mode'] ?? null) === 'vat-excluded'
-                            ? TaxBasis::Exclusive
-                            : TaxBasis::Unknown;
+                        try {
+                            [$amount, $taxBasis] = $this->priceFromPricing($pricing);
+                        } catch (\InvalidArgumentException) {
+                            // A price we cannot express exactly stays
+                            // unknown; the run degrades so the gap is
+                            // visible instead of a crash ending it.
+                            $degraded = true;
+                            $warnings[] = "renewal price for [{$name}] could not be parsed; left unknown.";
+                        }
                     }
                 }
             }
-
-            $deleteAt = $renew['deleteAt'] ?? null;
 
             $facts[] = new CostFact(
                 sourceRef: 'ovh:renewal:'.$name,
@@ -202,7 +211,7 @@ final class OvhProviderAdapter implements ProviderAdapter
                 amount: $amount,
                 validFrom: $context->now->startOfDay(),
                 taxBasis: $taxBasis,
-                renewsAt: is_string($deleteAt) ? new CarbonImmutable($deleteAt) : null,
+                renewsAt: $this->renewalDate($renew, $name, $warnings),
                 autoRenew: (bool) ($renew['automatic'] ?? false),
             );
         }
@@ -275,6 +284,58 @@ final class OvhProviderAdapter implements ProviderAdapter
         }
 
         return null;
+    }
+
+    /**
+     * The pricing part converted to an exact amount. `priceInUtv` is
+     * the catalog's own integer minor-unit price — exact by
+     * construction. The decimal `price.value` is a JSON float and only
+     * ever reaches Money through PHP's float rendering, so it is the
+     * fallback, and anything Money cannot express exactly (more than
+     * two decimals, E-notation) throws to the caller's unknown-price
+     * path.
+     *
+     * @param  array<string, mixed>  $pricing
+     * @return array{0: Money, 1: TaxBasis}
+     */
+    private function priceFromPricing(array $pricing): array
+    {
+        $taxBasis = ($pricing['tax']['mode'] ?? null) === 'vat-excluded'
+            ? TaxBasis::Exclusive
+            : TaxBasis::Unknown;
+
+        if (is_int($pricing['priceInUtv'] ?? null)) {
+            return [Money::ofMinor($pricing['priceInUtv'], (string) $pricing['price']['currencyCode']), $taxBasis];
+        }
+
+        return [
+            Money::ofString((string) $pricing['price']['value'], (string) $pricing['price']['currencyCode']),
+            $taxBasis,
+        ];
+    }
+
+    /**
+     * A renewal date the source cannot express cleanly is ignored with
+     * a warning naming the service — never a crashed run.
+     *
+     * @param  array<string, mixed>  $renew
+     * @param  list<string>  $warnings
+     */
+    private function renewalDate(array $renew, string $name, array &$warnings): ?CarbonImmutable
+    {
+        $deleteAt = $renew['deleteAt'] ?? null;
+
+        if (! is_string($deleteAt)) {
+            return null;
+        }
+
+        try {
+            return new CarbonImmutable($deleteAt);
+        } catch (\InvalidArgumentException) {
+            $warnings[] = "renewal date for [{$name}] could not be parsed; ignored.";
+
+            return null;
+        }
     }
 
     private function renewalPeriod(mixed $isoPeriod): Period

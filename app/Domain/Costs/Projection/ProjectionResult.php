@@ -2,6 +2,7 @@
 
 namespace App\Domain\Costs\Projection;
 
+use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Support\ValueObjects\Rational;
 
 /**
@@ -32,9 +33,10 @@ final readonly class ProjectionResult
     }
 
     /**
-     * How many winning charges carry a known, placeable amount — the
-     * "N priced" half of the coverage display. Unknown charges are the
-     * other half and are counted in $unknownCount.
+     * How many winning charges carry a known amount with a known,
+     * recurring cadence — the "N priced" half of the coverage display.
+     * The other half is counted in $unknownCount, which also includes
+     * known amounts whose cadence is unknown or one-time.
      */
     public function pricedCount(): int
     {
@@ -48,11 +50,14 @@ final readonly class ProjectionResult
     }
 
     /**
-     * Monthly spend grouped by provider label for one currency, in
-     * minor units. Each provider's share is rounded from its exact
-     * rational sum; the largest share absorbs the rounding residual so
-     * the split always adds up to the rounded-once total the metrics
-     * show. Presentation of lines only — the totals stay untouched.
+     * Recurring monthly spend grouped by provider label for one
+     * currency, in minor units. One-time charges stay out — they are
+     * not monthly spend, and folding them in would misattribute their
+     * full amount to a provider's recurring share. Each provider's
+     * share is rounded from its exact rational sum; the largest share
+     * absorbs the rounding residual so the split always adds up to the
+     * rounded-once recurring total the metrics show. Presentation of
+     * lines only — the totals stay untouched.
      *
      * @return array<string, int> provider label => monthly minor
      */
@@ -67,6 +72,10 @@ final readonly class ProjectionResult
         $exact = [];
 
         foreach ($total->lines() as $line) {
+            if ($line->chargeKind === ChargeKind::OneTime) {
+                continue;
+            }
+
             $exact[$line->provider] = ($exact[$line->provider] ?? new Rational(0))
                 ->add($line->monthlyEquivalent);
         }

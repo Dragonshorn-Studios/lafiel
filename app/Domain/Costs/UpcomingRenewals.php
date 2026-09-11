@@ -4,6 +4,7 @@ namespace App\Domain\Costs;
 
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\Renewal;
+use App\Domain\Costs\Projection\ChargeLine;
 use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
 
@@ -11,9 +12,9 @@ use Carbon\CarbonImmutable;
  * Read model for the renewal window: every renewal attached to a still
  * open charge, renews within the given number of days. The Overview
  * renders what this returns — service, provider, amount, date — and
- * the per-currency totals for the "upcoming" metric; it never sums
- * money on its own. Amounts are the charge's source amount, not
- * normalized: an annual renewal shows its annual price.
+ * the Overview never sums money on its own: the per-currency totals
+ * here are plain minor-unit sums of the un-normalized source amounts
+ * (an annual renewal shows its annual price).
  */
 class UpcomingRenewals
 {
@@ -31,23 +32,7 @@ class UpcomingRenewals
 
         $rows = $renewals->map(fn (Renewal $renewal): array => $this->row($renewal));
 
-        $totals = [];
-
-        foreach ($rows as $row) {
-            $money = $row['amount'];
-
-            if ($money === null) {
-                continue;
-            }
-
-            $totals[$money->currency] = ($totals[$money->currency] ?? 0) + $money->amountMinor;
-        }
-
-        return new UpcomingRenewalWindow(
-            array_values($rows->all()),
-            $totals,
-            $rows->filter(fn (array $row): bool => $row['amount'] === null)->count(),
-        );
+        return UpcomingRenewalWindow::fromRows(array_values($rows->all()));
     }
 
     /**
@@ -62,7 +47,7 @@ class UpcomingRenewals
 
         return [
             'name' => $service !== null ? $service->name : __('Unnamed charge'),
-            'provider' => $providerName !== null && $providerName !== '' ? $providerName : __('Manual'),
+            'provider' => $providerName !== null && $providerName !== '' ? $providerName : ChargeLine::MANUAL_PROVIDER,
             'amount' => $item->money(),
             'renews_at' => $renewal->renews_at,
             'auto_renew' => $renewal->auto_renew,

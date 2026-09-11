@@ -15,7 +15,10 @@ new class extends Component {
     #[Computed]
     public function accounts(): Collection
     {
-        return ProviderAccount::query()->where('enabled', true)->get();
+        return ProviderAccount::query()
+            ->where('enabled', true)
+            ->with('capabilityStates')
+            ->get();
     }
 
     #[Computed]
@@ -35,10 +38,18 @@ new class extends Component {
 
         $freshnessDays = (int) config('costs.freshness_days', 7);
 
-        return $this->accounts->every(
-            fn (ProviderAccount $account): bool => $account->last_success_at !== null
-                && $account->last_success_at->gte(now()->subDays($freshnessDays)),
-        );
+        // A partial run still stamps last_success_at, so freshness
+        // alone would stay green while capability data quietly ages.
+        return $this->accounts->every(function (ProviderAccount $account) use ($freshnessDays): bool {
+            if ($account->last_success_at === null
+                || $account->last_success_at->lt(now()->subDays($freshnessDays))) {
+                return false;
+            }
+
+            return $account->capabilityStates->every(
+                fn ($state): bool => ! $state->supported || $state->healthy,
+            );
+        });
     }
 }; ?>
 

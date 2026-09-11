@@ -10,8 +10,9 @@ use Illuminate\Validation\ValidationException;
  * Shape of the OVH credential payload stored in
  * `provider_credentials.payload` (`schema_version` 1): the three
  * OVHcloud API credentials plus the endpoint name. Only read access is
- * ever requested for these keys; the whitelist keeps a typo from
- * pointing the account at a different OVH platform.
+ * ever requested for these keys (see docs/integrations.md — credentials
+ * are created out-of-band by the user); the whitelist keeps a typo
+ * from pointing the account at a different OVH platform.
  */
 final class OvhCredentialSchema
 {

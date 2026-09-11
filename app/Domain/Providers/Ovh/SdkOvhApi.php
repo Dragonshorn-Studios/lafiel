@@ -10,6 +10,7 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Exception\ServerException;
+use Illuminate\Validation\ValidationException;
 use Ovh\Api;
 
 /**
@@ -64,14 +65,21 @@ final class SdkOvhApi implements OvhApi
     }
 
     /**
-     * Build the SDK client for one credential payload. Both endpoints are
-     * already validated by the schema; anything the SDK itself rejects is
-     * a malformed stored payload, which only a human can fix.
+     * Build the SDK client for one credential payload. The endpoint is
+     * already validated by the schema; anything the schema or the SDK
+     * itself rejects is a malformed stored payload, which only a human
+     * can fix.
      *
      * @param  array<string, mixed>  $payload
      */
     public static function forPayload(array $payload): self
     {
+        try {
+            OvhCredentialSchema::assertValid($payload);
+        } catch (ValidationException $exception) {
+            throw new InvalidCredentialsException('Stored OVH credential payload does not match schema version '.OvhCredentialSchema::SCHEMA_VERSION.'.', previous: $exception);
+        }
+
         $api = new Api(
             (string) $payload['application_key'],
             (string) $payload['application_secret'],

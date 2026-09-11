@@ -23,8 +23,8 @@ use Carbon\CarbonImmutable;
  * and a new version opens under the same logical charge, so history
  * keeps every price. Evidence upgrades (quote to actual), observation
  * times, and renewal dates update in place. Manual rows are never
- * touched — they live under a different key namespace and win through
- * the projector's precedence, not through here.
+ * touched: they live under a disjoint key namespace, so they never
+ * collide with provider facts here at all.
  */
 final class PersistCostFacts
 {

@@ -18,11 +18,34 @@ final readonly class UpcomingRenewalWindow
      * @param  list<array{name: string, provider: string, amount: ?Money, renews_at: CarbonImmutable, auto_renew: bool, cost_item: CostItem}>  $rows
      * @param  array<string, int>  $totalsMinor  currency => minor sum
      */
-    public function __construct(
+    private function __construct(
         public array $rows,
         public array $totalsMinor,
         public int $unknownCount,
     ) {}
+
+    /**
+     * The totals and the unknown count are derived from the rows here,
+     * so a window can never disagree with itself.
+     *
+     * @param  list<array{name: string, provider: string, amount: ?Money, renews_at: CarbonImmutable, auto_renew: bool, cost_item: CostItem}>  $rows
+     */
+    public static function fromRows(array $rows): self
+    {
+        $totals = [];
+
+        foreach ($rows as $row) {
+            if ($row['amount'] === null) {
+                continue;
+            }
+
+            $totals[$row['amount']->currency] = ($totals[$row['amount']->currency] ?? 0) + $row['amount']->amountMinor;
+        }
+
+        $unknown = count(array_filter($rows, fn (array $row): bool => $row['amount'] === null));
+
+        return new self($rows, $totals, $unknown);
+    }
 
     /**
      * The total in the display currency, or null when nothing is priced

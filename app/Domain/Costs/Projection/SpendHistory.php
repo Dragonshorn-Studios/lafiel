@@ -6,11 +6,12 @@ use Carbon\CarbonImmutable;
 
 /**
  * The monthly burn series behind the Overview chart. Every point is a
- * full projection at that month's end — the chart never sums money by
- * itself. Completed months are ledger facts; the current, unfinished
- * month is the projection as of now and is flagged estimated so the UI
- * can draw it dashed. Totals are per the display currency; a month
- * with no charges contributes zero.
+ * full projection over the stored cost items as of that month's end —
+ * past months are recomputed, not snapshotted, so backdated or ended
+ * charges rewrite them — and the chart never sums money by itself.
+ * The current, unfinished month is projected as of now and flagged
+ * estimated so the UI can draw it dashed. Totals are per the display
+ * currency; a month with no charges in it contributes zero.
  */
 class SpendHistory
 {
@@ -26,8 +27,13 @@ class SpendHistory
 
         $series = [];
 
+        // Anchor from the start of the current month: subtracting N
+        // months from e.g. March 31st overflows in Carbon and would
+        // corrupt the labels (two "May", no "April").
+        $currentMonth = $now->startOfMonth();
+
         for ($offset = $months - 1; $offset >= 0; $offset--) {
-            $month = $now->subMonths($offset);
+            $month = $currentMonth->subMonths($offset);
             $observedAt = $offset === 0 ? $now : $month->endOfMonth();
 
             $result = $this->projector->project($observedAt);
