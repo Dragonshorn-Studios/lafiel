@@ -3,11 +3,13 @@
 namespace App\Domain\Sync\Actions;
 
 use App\Domain\Providers\Models\ProviderAccount;
+use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Jobs\SyncProviderAccount;
 use App\Domain\Sync\Models\SyncRun;
 use App\Domain\Sync\ReconcileStaleRuns;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The single entry point for starting a sync — "sync now", the console
@@ -50,7 +52,19 @@ final class RequestSync
             return null;
         }
 
-        SyncProviderAccount::dispatch($run->id);
+        try {
+            SyncProviderAccount::dispatch($run->id);
+        } catch (Throwable $exception) {
+            // A dispatch failure would otherwise leave the run queued
+            // with no job behind it, blocking further syncs until the
+            // stale-run reconciler aged it out.
+            $run->status = SyncStatus::Failed;
+            $run->summary = ['warnings' => ['could not queue the sync job: '.$exception->getMessage()]];
+            $run->finished_at = now();
+            $run->save();
+
+            return null;
+        }
 
         return $run;
     }

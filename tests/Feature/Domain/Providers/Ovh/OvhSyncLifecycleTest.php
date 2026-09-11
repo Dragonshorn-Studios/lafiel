@@ -3,6 +3,7 @@
 namespace Tests\Feature\Domain\Providers\Ovh;
 
 use App\Domain\Costs\Models\CostItem;
+use App\Domain\History\Models\CostSnapshot;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\Actions\UpdateOvhCredentials;
@@ -16,10 +17,12 @@ use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Providers\Ovh\BuildOvhApi;
 use App\Domain\Providers\Ovh\OvhApi;
 use App\Domain\Providers\Ovh\OvhProviderAdapter;
+use App\Domain\Sync\Actions\RequestSync;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
 use App\Domain\Sync\SyncOrchestrator;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Bus;
 use Tests\Fakes\FakeOvhApi;
 
 beforeEach(function () {
@@ -324,6 +327,48 @@ it('keeps last good data when the listing fails and the capability goes stale', 
 
     expect($inventory->healthy)->toBeFalse()
         ->and($inventory->last_attempt_at)->not->toBeNull();
+});
+
+it('marks a run failed when the sync job cannot be dispatched', function () {
+    $account = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
+
+    Bus::shouldReceive('dispatch')
+        ->andThrow(new \RuntimeException('queue connection refused'));
+
+    $run = app(RequestSync::class)->request($account, 'manual');
+
+    expect($run)->toBeNull()
+        ->and(SyncRun::query()->where('provider_account_id', $account->id)->sole()->status)
+        ->toBe(SyncStatus::Failed);
+});
+
+it('captures a snapshot after a partial sync but writes nothing when a run fails', function () {
+    $api = ovhStack();
+    $account = ovhAccount();
+
+    // Partial inventory: cloud metadata fails, so the run is partial and
+    // a snapshot is still captured (the inputs moved).
+    $api->responses = ovhRunPayload('service-run-a.json');
+    $api->throwOn('/service/cloud-project-synthetic-01', [
+        new TransientProviderException('OVH API server error for [/service/cloud-project-synthetic-01] (HTTP 503).'),
+    ]);
+
+    ovhSync($account);
+    $afterPartial = CostSnapshot::query()->count();
+    expect($afterPartial)->toBe(1);
+
+    // A failed run changes nothing and writes nothing.
+    $api->responses = ['/me' => ovhFixture('me.json')];
+    $api->throwOn('/service', array_fill(
+        0,
+        (int) config('sync.retry.max_attempts'),
+        new TransientProviderException('OVH rate limit reached for [/service] (HTTP 429).'),
+    ));
+
+    $failed = ovhSync($account);
+
+    expect($failed->refresh()->status)->toBe(SyncStatus::Failed)
+        ->and(CostSnapshot::query()->count())->toBe(1);
 });
 
 it('records inventory and renewal quotes as the supported capabilities', function () {

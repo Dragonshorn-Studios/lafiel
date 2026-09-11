@@ -6,6 +6,7 @@ use App\Actions\Setup\CreateAdministrator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class SetupController extends Controller
@@ -30,6 +31,10 @@ class SetupController extends Controller
         }
 
         Auth::login($user);
+
+        // From here on, scheduler and queue liveness checks are armed:
+        // a missing heartbeat is a dead pipeline, not a fresh install.
+        Cache::forever('ops:installed-at', now()->toIso8601String());
 
         return redirect()->route('overview');
     }

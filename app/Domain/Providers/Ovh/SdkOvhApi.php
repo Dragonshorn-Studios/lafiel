@@ -51,7 +51,11 @@ final class SdkOvhApi implements OvhApi
             return new TransientProviderException("OVH API server error for [{$path}] (HTTP {$exception->getResponse()->getStatusCode()}).");
         }
 
-        $status = $exception->getResponse()?->getStatusCode() ?? 0;
+        $status = $exception->getResponse()?->getStatusCode();
+
+        if ($status === null) {
+            return new TransientProviderException("OVH API request to [{$path}] timed out or failed without a response.");
+        }
 
         if (in_array($status, [401, 403], true)) {
             return new InvalidCredentialsException("OVH rejected the credentials for [{$path}] (HTTP {$status}).");

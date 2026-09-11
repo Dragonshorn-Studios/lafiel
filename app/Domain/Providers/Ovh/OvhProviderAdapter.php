@@ -150,6 +150,7 @@ final class OvhProviderAdapter implements ProviderAdapter
         $facts = [];
         $warnings = [];
         $catalogs = [];
+        $failedFamilies = [];
         $degraded = false;
 
         foreach ($inventory->items as $item) {
@@ -183,7 +184,7 @@ final class OvhProviderAdapter implements ProviderAdapter
 
                 if ($catalog === null) {
                     $degraded = true;
-                    $warnings[] = "renewal pricing unavailable for [{$name}]; catalog [{$family}] failed.";
+                    $failedFamilies[$family] = ($failedFamilies[$family] ?? 0) + 1;
                 } else {
                     $pricing = $this->catalogPricing($catalog, $service, $period);
 
@@ -214,6 +215,12 @@ final class OvhProviderAdapter implements ProviderAdapter
                 renewsAt: $this->renewalDate($renew, $name, $warnings),
                 autoRenew: (bool) ($renew['automatic'] ?? false),
             );
+        }
+
+        // One warning per failed family with the affected service
+        // count, instead of one near-identical warning per service.
+        foreach ($failedFamilies as $family => $count) {
+            $warnings[] = "renewal pricing unavailable for {$count} services; catalog [{$family}] failed.";
         }
 
         $completeness = $degraded ? BatchCompleteness::Partial : BatchCompleteness::Complete;

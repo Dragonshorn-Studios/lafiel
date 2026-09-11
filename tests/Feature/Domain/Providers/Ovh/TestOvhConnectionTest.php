@@ -31,33 +31,20 @@ it('reports rejected credentials as a distinct state and never retries them', fu
         ->and($api->callCount('/me'))->toBe(1);
 });
 
-it('reports unreachable after bounded transient retries', function () {
+it('reports a transient failure as unreachable on a single attempt', function () {
     Sleep::fake();
 
-    $api = (new FakeOvhApi)->throwOn('/me', array_fill(
-        0,
-        (int) config('sync.retry.max_attempts'),
+    $api = (new FakeOvhApi)->throwOn('/me', [
         new TransientProviderException('OVH API server error for [/me] (HTTP 503).'),
-    ));
-
-    $check = app(TestOvhConnection::class)->check($api);
-
-    expect($check->status->value)->toBe('unreachable')
-        ->and($check->warning)->toContain('503')
-        ->and($api->callCount('/me'))->toBe((int) config('sync.retry.max_attempts'));
-});
-
-it('succeeds on a transient failure once a retry gets through', function () {
-    Sleep::fake();
-
-    $api = (new FakeOvhApi(['/me' => ovhFixture('me.json')]))->throwOn('/me', [
-        new TransientProviderException('OVH API server error for [/me] (HTTP 500).'),
     ]);
 
     $check = app(TestOvhConnection::class)->check($api);
 
-    expect($check->status->value)->toBe('connected')
-        ->and($api->callCount('/me'))->toBe(2);
+    // The interactive probe never retries: the button is there to
+    // press again.
+    expect($check->status->value)->toBe('unreachable')
+        ->and($check->warning)->toContain('503')
+        ->and($api->callCount('/me'))->toBe(1);
 });
 
 it('treats a malformed stored payload as rejected, not transient', function () {

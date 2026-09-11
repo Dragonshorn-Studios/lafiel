@@ -189,7 +189,7 @@ it('degrades the renewal capability when a catalog fetch fails', function () {
     expect($costs->facts)->toHaveCount(4)
         ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
         ->and($vps->amount)->toBeNull()
-        ->and($costs->warnings)->toContain('renewal pricing unavailable for [vps-synthetic-01]; catalog [vps] failed.');
+        ->and($costs->warnings)->toContain('renewal pricing unavailable for 1 services; catalog [vps] failed.');
 });
 
 // ---------------------------------------------------------------------------
