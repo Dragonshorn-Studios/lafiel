@@ -2,6 +2,7 @@
 
 use App\Domain\Providers\Dtos\SyncContext;
 use App\Domain\Providers\Enums\BatchCompleteness;
+use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
@@ -126,13 +127,11 @@ it('proves the credentials through GET /me for the orchestrator', function () {
         ->and($check->warning)->toContain('403');
 });
 
-it('never exposes a cost facts implementation while none is declared', function () {
-    $adapter = ovhAdapter(ovhRunAFake());
+it('declares renewal quotes as a supported capability', function () {
+    $capabilities = ovhAdapter(ovhRunAFake())->capabilities();
 
-    expect($adapter->capabilities()->costCapabilities())->toBe([]);
-
-    expect(fn () => $adapter->fetchCostFacts(
-        ovhContext(ProviderAccount::factory()->create()),
-        $adapter->fetchInventory(ovhContext(ProviderAccount::factory()->create())),
-    ))->toThrow(LogicException::class);
+    expect($capabilities->supports(ProviderCapability::Inventory))->toBeTrue()
+        ->and($capabilities->supports(ProviderCapability::RenewalQuotes))->toBeTrue()
+        ->and($capabilities->supports(ProviderCapability::Usage))->toBeFalse()
+        ->and($capabilities->supports(ProviderCapability::Invoices))->toBeFalse();
 });

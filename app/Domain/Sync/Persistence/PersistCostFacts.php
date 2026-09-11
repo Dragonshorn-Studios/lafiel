@@ -76,6 +76,7 @@ final class PersistCostFacts
             $open->source_kind = $fact->sourceKind;
             $open->evidence_state = $fact->evidenceState;
             $open->tax_basis = $fact->taxBasis;
+            $open->allocation_state = $fact->allocationState;
             $open->observed_at = $batch->observedAt;
             if ($open->isDirty()) {
                 $open->save();
@@ -124,6 +125,7 @@ final class PersistCostFacts
             'amount_state' => $known ? AmountState::Known : AmountState::Unknown,
             'evidence_state' => $fact->evidenceState,
             'tax_basis' => $fact->taxBasis,
+            'allocation_state' => $fact->allocationState,
             'valid_from' => $fact->validFrom,
             'observed_at' => $batch->observedAt,
         ]);

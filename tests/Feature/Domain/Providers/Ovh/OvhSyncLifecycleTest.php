@@ -36,7 +36,14 @@ beforeEach(function () {
 function ovhRunPayload(string $listing = 'service-run-a.json'): array
 {
     $names = ovhFixture($listing);
-    $responses = ['/me' => ovhFixture('me.json'), '/service' => $names];
+    $responses = [
+        '/me' => ovhFixture('me.json'),
+        '/service' => $names,
+        '/order/catalog/formatted/vps' => ovhFixture('catalog/vps-eu.json'),
+        '/order/catalog/formatted/cloud' => ovhFixture('catalog/cloud-eu.json'),
+        '/order/catalog/formatted/domain' => ovhFixture('catalog/domain-eu.json'),
+        '/order/catalog/formatted/ip' => ovhFixture('catalog/ip-eu.json'),
+    ];
 
     foreach ($names as $name) {
         $responses['/service/'.$name] = ovhFixture('service/'.$name.'.json');
@@ -219,7 +226,7 @@ it('keeps last good data when the listing fails and the capability goes stale', 
         ->and($inventory->last_attempt_at)->not->toBeNull();
 });
 
-it('records inventory as the only supported capability', function () {
+it('records inventory and renewal quotes as the supported capabilities', function () {
     ovhStack();
     $account = ovhAccount();
 
@@ -230,9 +237,9 @@ it('records inventory as the only supported capability', function () {
         ->pluck('supported', 'capability_key');
 
     expect($run->refresh()->counts)->toHaveKey('inventory')
-        ->and($run->counts)->not->toHaveKey('cost_facts')
+        ->and($run->counts['cost_facts'])->toBe(['seen' => 4, 'created' => 4, 'superseded' => 0, 'updated' => 0, 'renewals' => 1, 'ended' => 0])
         ->and($states[ProviderCapability::Inventory->value])->toBeTrue()
-        ->and($states[ProviderCapability::RenewalQuotes->value])->toBeFalse()
+        ->and($states[ProviderCapability::RenewalQuotes->value])->toBeTrue()
         ->and($states[ProviderCapability::Subscriptions->value])->toBeFalse()
         ->and($states[ProviderCapability::Usage->value])->toBeFalse()
         ->and($states[ProviderCapability::Invoices->value])->toBeFalse();

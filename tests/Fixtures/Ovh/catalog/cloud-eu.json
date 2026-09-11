@@ -1,0 +1,39 @@
+{
+    "catalogName": "cloud",
+    "date": "2026-09-01",
+    "pricingMode": "default",
+    "locale": {
+        "currencyCode": "EUR",
+        "name": "Europe/Paris",
+        "position": "6"
+    },
+    "catalog": [
+        {
+            "name": "cloud",
+            "products": [
+                {
+                    "name": "project-2025",
+                    "planCode": "project-2025-monthly",
+                    "pricings": [
+                        {
+                            "duration": "P1M",
+                            "pricingMode": "default",
+                            "description": "monthly renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "0.00 €",
+                                "value": 0.0
+                            },
+                            "priceInUtv": 0,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "structures": [],
+    "addonsFamilies": []
+}

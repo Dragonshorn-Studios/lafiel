@@ -1,0 +1,39 @@
+{
+    "catalogName": "ip",
+    "date": "2026-09-01",
+    "pricingMode": "default",
+    "locale": {
+        "currencyCode": "EUR",
+        "name": "Europe/Paris",
+        "position": "6"
+    },
+    "catalog": [
+        {
+            "name": "ip",
+            "products": [
+                {
+                    "name": "ip-failover-2025",
+                    "planCode": "ip-failover-2025-monthly",
+                    "pricings": [
+                        {
+                            "duration": "P1M",
+                            "pricingMode": "default",
+                            "description": "monthly renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "2.00 €",
+                                "value": 2.0
+                            },
+                            "priceInUtv": 200,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "structures": [],
+    "addonsFamilies": []
+}

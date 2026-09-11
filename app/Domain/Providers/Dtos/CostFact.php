@@ -2,6 +2,7 @@
 
 namespace App\Domain\Providers\Dtos;
 
+use App\Domain\Costs\Enums\AllocationState;
 use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\EvidenceState;
 use App\Domain\Costs\Enums\Period;
@@ -13,7 +14,10 @@ use Carbon\CarbonImmutable;
 /**
  * One canonical cost fact. A fact may cover one or many services (a
  * package charge covers them all through one cost item). A missing
- * price is unknown, never inferred.
+ * price is unknown, never inferred. Allocation is `direct` when the
+ * price belongs to the covered services as stated and
+ * `shared_unallocated` when a package price part cannot be attributed
+ * — uncertainty is counted, never double-counted.
  */
 final readonly class CostFact
 {
@@ -32,5 +36,6 @@ final readonly class CostFact
         public TaxBasis $taxBasis = TaxBasis::Unknown,
         public ?CarbonImmutable $renewsAt = null,
         public bool $autoRenew = false,
+        public AllocationState $allocationState = AllocationState::Direct,
     ) {}
 }

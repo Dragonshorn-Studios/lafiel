@@ -13,8 +13,11 @@ shapes still match.
 | Case | Fixtures |
 | --- | --- |
 | Ordinary priced service | `service/vps-synthetic-01.json` + `catalog/vps-eu.json` (a matching plan with prices) |
-| Unknown price | `service/domain-zone-synthetic-01.json` + `catalog/domain-eu.json` (no matching plan — price must stay unknown, never inferred) |
+| Unknown price | `service/domain-zone-synthetic-01.json` + `catalog/domain-eu.json` (no matching plan — price must stay unknown, never inferred); `service/ip-synthetic-01.json` + `catalog/ip-eu.json` (same shape) |
 | Missing on the next complete run | `ip-synthetic-01` appears in `service-run-a.json` but not in `service-run-b.json` (both complete runs) |
+
+`catalog/cloud-eu.json` additionally prices the cloud project at 0.00 —
+a known zero is a price, not an absence.
 
 ## Layout
 

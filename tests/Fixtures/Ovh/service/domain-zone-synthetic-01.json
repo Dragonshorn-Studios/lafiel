@@ -8,7 +8,7 @@
     "route": "/domain/zone/domain-synthetic-01.eu.org",
     "renew": {
         "automatic": false,
-        "deleteAt": null,
+        "deleteAt": "2026-10-20T00:00:00+02:00",
         "forced": false,
         "manualPayment": false,
         "period": "P1M",

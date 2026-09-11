@@ -2,8 +2,14 @@
 
 namespace App\Domain\Providers\Ovh;
 
+use App\Domain\Costs\Enums\ChargeKind;
+use App\Domain\Costs\Enums\EvidenceState;
+use App\Domain\Costs\Enums\Period;
+use App\Domain\Costs\Enums\SourceKind;
+use App\Domain\Costs\Enums\TaxBasis;
 use App\Domain\Providers\Contracts\ProviderAdapter;
 use App\Domain\Providers\Dtos\CapabilitySet;
+use App\Domain\Providers\Dtos\CostFact;
 use App\Domain\Providers\Dtos\CostFactBatch;
 use App\Domain\Providers\Dtos\CredentialCheck;
 use App\Domain\Providers\Dtos\InventoryBatch;
@@ -13,14 +19,23 @@ use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
+use App\Domain\Support\ValueObjects\Money;
+use Carbon\CarbonImmutable;
 
 /**
- * Read-only OVH inventory adapter. Discovery starts at the common
- * Service API (`GET /service`), then one metadata call per service
- * (`GET /service/{name}`) whose `route` names the product family — the
- * endpoint/version details stay inside this class. The service name is
- * the stable external id; the route family is kept as provider type
- * next to the canonical category.
+ * Read-only OVH adapter for inventory and renewal quotes. Discovery
+ * starts at the common Service API (`GET /service`), then one metadata
+ * call per service (`GET /service/{name}`) whose `route` names the
+ * product family — the endpoint/version details stay inside this
+ * class. The service name is the stable external id; the route family
+ * is kept as provider type next to the canonical category.
+ *
+ * Renewal pricing is read from the family's formatted catalog and
+ * modeled as an estimate — catalog output is never an actual, and a
+ * missing plan leaves the price unknown rather than inferred. Every
+ * v1 renewal price belongs to exactly one service, so allocation is
+ * `direct`; a future price part covering several services without a
+ * per-service attribution would set `shared_unallocated` instead.
  */
 final class OvhProviderAdapter implements ProviderAdapter
 {
@@ -57,7 +72,10 @@ final class OvhProviderAdapter implements ProviderAdapter
 
     public function capabilities(): CapabilitySet
     {
-        return new CapabilitySet([ProviderCapability::Inventory]);
+        return new CapabilitySet([
+            ProviderCapability::Inventory,
+            ProviderCapability::RenewalQuotes,
+        ]);
     }
 
     public function fetchInventory(SyncContext $context): InventoryBatch
@@ -112,13 +130,177 @@ final class OvhProviderAdapter implements ProviderAdapter
     }
 
     /**
-     * The capability set declares no cost capabilities, so the
-     * orchestrator never calls this; reaching here is a programming
-     * error, not an empty observation.
+     * One renewal-estimate fact per inventoried service. The renewal
+     * period comes from the service's renew strategy, the price from
+     * the family's formatted catalog — modeled as an estimate, with a
+     * missing plan leaving the price unknown, never inferred. A fetch
+     * that fails degrades the capability to partial; an honest unknown
+     * price does not.
      */
     public function fetchCostFacts(SyncContext $context, InventoryBatch $inventory): CostFactBatch
     {
-        throw new \LogicException('The OVH adapter declares no cost capabilities; fetchCostFacts must never be called.');
+        $api = $this->buildOvhApi->build($context->credentials);
+
+        $facts = [];
+        $warnings = [];
+        $catalogs = [];
+        $degraded = false;
+
+        foreach ($inventory->items as $item) {
+            $name = $item->externalId;
+
+            try {
+                $service = $api->get('/service/'.$name);
+            } catch (TransientProviderException) {
+                $degraded = true;
+                $warnings[] = "renewal facts unavailable for [{$name}]; service metadata failed.";
+
+                continue;
+            }
+
+            $renew = is_array($service['renew'] ?? null) ? $service['renew'] : [];
+            $period = $this->renewalPeriod($renew['period'] ?? null);
+            $taxBasis = TaxBasis::Unknown;
+            $amount = null;
+
+            $family = $this->catalogFamily($item->providerType);
+
+            if ($family !== null) {
+                $catalog = $catalogs[$family] ?? $this->loadCatalog($api, $family);
+                $catalogs[$family] = $catalog;
+
+                if ($catalog === null) {
+                    $degraded = true;
+                    $warnings[] = "renewal pricing unavailable for [{$name}]; catalog [{$family}] failed.";
+                } else {
+                    $pricing = $this->catalogPricing($catalog, $service, $period);
+
+                    if ($pricing !== null) {
+                        // The amount/currency pair is stored exactly as
+                        // the source states it; Money parses the decimal
+                        // digit by digit, never through a float.
+                        $amount = Money::ofString(
+                            (string) $pricing['price']['value'],
+                            (string) $pricing['price']['currencyCode'],
+                        );
+                        $taxBasis = ($pricing['tax']['mode'] ?? null) === 'vat-excluded'
+                            ? TaxBasis::Exclusive
+                            : TaxBasis::Unknown;
+                    }
+                }
+            }
+
+            $deleteAt = $renew['deleteAt'] ?? null;
+
+            $facts[] = new CostFact(
+                sourceRef: 'ovh:renewal:'.$name,
+                serviceExternalIds: [$name],
+                sourceKind: SourceKind::RenewalQuote,
+                chargeKind: ChargeKind::RecurringFixed,
+                period: $period,
+                evidenceState: EvidenceState::Estimate,
+                amount: $amount,
+                validFrom: $context->now->startOfDay(),
+                taxBasis: $taxBasis,
+                renewsAt: is_string($deleteAt) ? new CarbonImmutable($deleteAt) : null,
+                autoRenew: (bool) ($renew['automatic'] ?? false),
+            );
+        }
+
+        $completeness = $degraded ? BatchCompleteness::Partial : BatchCompleteness::Complete;
+
+        return new CostFactBatch(
+            completeness: $completeness,
+            observedAt: $context->now,
+            sourceRef: 'ovh:renewal-quotes',
+            facts: $facts,
+            warnings: $warnings,
+            capabilityCompleteness: [
+                ProviderCapability::RenewalQuotes->value => $completeness,
+                ProviderCapability::Subscriptions->value => BatchCompleteness::Unsupported,
+                ProviderCapability::Usage->value => BatchCompleteness::Unsupported,
+                ProviderCapability::Invoices->value => BatchCompleteness::Unsupported,
+            ],
+        );
+    }
+
+    /**
+     * @return array<string, mixed>|null the catalog payload, or null when
+     *                                   it could not be fetched this run
+     */
+    private function loadCatalog(OvhApi $api, string $family): ?array
+    {
+        try {
+            $catalog = $api->get('/order/catalog/formatted/'.$family, ['ovhSubsidiary' => 'IE']);
+        } catch (TransientProviderException) {
+            return null;
+        }
+
+        return is_array($catalog) ? $catalog : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $catalog
+     * @param  array<string, mixed>  $service
+     * @return array<string, mixed>|null the pricing part matching the
+     *                                   service offer and renewal period
+     */
+    private function catalogPricing(array $catalog, array $service, Period $period): ?array
+    {
+        $offer = (string) ($service['offer'] ?? '');
+        $duration = match ($period) {
+            Period::Monthly => 'P1M',
+            Period::Quarterly => 'P3M',
+            Period::Annual => 'P12M',
+            default => null,
+        };
+
+        if ($offer === '' || $duration === null) {
+            return null;
+        }
+
+        foreach ($catalog['catalog'] ?? [] as $entry) {
+            foreach ($entry['products'] ?? [] as $product) {
+                if (($product['name'] ?? null) !== $offer) {
+                    continue;
+                }
+
+                foreach ($product['pricings'] ?? [] as $pricing) {
+                    if (($pricing['duration'] ?? null) === $duration
+                        && isset($pricing['price']['value'], $pricing['price']['currencyCode'])) {
+                        return $pricing;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function renewalPeriod(mixed $isoPeriod): Period
+    {
+        return match ($isoPeriod) {
+            'P1M' => Period::Monthly,
+            'P3M' => Period::Quarterly,
+            'P12M', 'P1Y' => Period::Annual,
+            default => Period::Unknown,
+        };
+    }
+
+    /**
+     * The formatted catalog that prices one provider type. A type with
+     * no catalog simply stays unpriced this run — that is v1 scope,
+     * not a degraded fetch.
+     */
+    private function catalogFamily(?string $providerType): ?string
+    {
+        return match ($providerType) {
+            'vps' => 'vps',
+            'cloud_project' => 'cloud',
+            'domain_zone', 'domain_name' => 'domain',
+            'ip' => 'ip',
+            default => null,
+        };
     }
 
     /**
