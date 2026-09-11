@@ -33,6 +33,7 @@ use App\Domain\Sync\SyncOrchestrator;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use RuntimeException;
@@ -542,7 +543,9 @@ it('never starts a parallel run through the request action', function () {
     $account = makeAccount($adapter);
 
     $first = app(RequestSync::class)->request($account);
-    $second = app(RequestSync::class)->request($account);
+    // The refused insert aborts a Postgres transaction; the savepoint
+    // keeps the test's surrounding transaction healthy.
+    $second = DB::transaction(fn () => app(RequestSync::class)->request($account));
 
     expect($first)->not->toBeNull()
         ->and($second)->toBeNull()
@@ -559,10 +562,10 @@ it('lets the database reject a second active run for the account', function () {
         'status' => SyncStatus::Queued,
     ]);
 
-    expect(fn () => SyncRun::factory()->create([
+    expect(fn () => DB::transaction(fn () => SyncRun::factory()->create([
         'provider_account_id' => $account->id,
         'status' => SyncStatus::Running,
-    ]))->toThrow(UniqueConstraintViolationException::class);
+    ])))->toThrow(UniqueConstraintViolationException::class);
 });
 
 it('abandons a stale active run so future syncs are not blocked', function () {
@@ -935,8 +938,11 @@ it('reports an already active sync instead of queueing another', function () {
 
     app(RequestSync::class)->request($account);
 
-    artisan('lafiel:sync')->assertSuccessful()
-        ->expectsOutputToContain('already syncing');
+    // The refused insert inside the command needs its own savepoint on
+    // Postgres, or the aborted transaction would fail every later query.
+    DB::transaction(fn () => artisan('lafiel:sync')
+        ->assertSuccessful()
+        ->expectsOutputToContain('already syncing'));
 
     expect(SyncRun::query()->count())->toBe(1);
 });
