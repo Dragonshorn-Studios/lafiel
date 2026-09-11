@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Sync\Commands\SyncNowCommand;
 use App\Http\Middleware\EnsureInstalled;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -12,6 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withCommands([
+        SyncNowCommand::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             EnsureInstalled::class,
