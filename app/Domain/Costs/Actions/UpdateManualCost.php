@@ -17,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class UpdateManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * Update a manual charge and the service it bills for. Price-affecting
      * changes (amount, currency, period) never rewrite the existing fact:
@@ -66,8 +68,9 @@ class UpdateManualCost
             return $costItem;
         });
 
-        // A material input changed: capture (the checksum dedupes).
-        app(TakeSnapshot::class)->capture();
+        // Inputs may have changed: capture; the checksum dedupes when
+        // the stored output would not change.
+        $this->takeSnapshot->capture();
 
         return $costItem;
     }

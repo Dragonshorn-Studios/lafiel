@@ -2,9 +2,11 @@
 
 use App\Domain\Costs\Actions\CreateManualCost;
 use App\Domain\Costs\Actions\EndManualCost;
+use App\Domain\Costs\Actions\UpdateManualCost;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\History\Models\CostSnapshot;
 use App\Domain\History\TakeSnapshot;
+use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
@@ -69,9 +71,11 @@ function queueOvhSnapshotRun(ProviderAccount $account): SyncRun
 it('captures totals, completeness, and breakdown for the date', function () {
     snapshotCharge();
 
-    $snapshot = app(TakeSnapshot::class)->capture();
+    $capture = app(TakeSnapshot::class)->capture();
+    $snapshot = $capture->snapshot;
 
-    expect($snapshot->snapshot_date->toDateString())->toBe('2026-09-10')
+    expect($capture->written)->toBeFalse()
+        ->and($snapshot->snapshot_date->toDateString())->toBe('2026-09-10')
         ->and($snapshot->totals['PLN']['monthly_minor'])->toBe(5000)
         ->and($snapshot->totals['PLN']['annual_minor'])->toBe(60000)
         ->and($snapshot->completeness['priced'])->toBe(1)
@@ -84,20 +88,21 @@ it('captures totals, completeness, and breakdown for the date', function () {
 
 it('adds no noise when inputs are unchanged', function () {
     snapshotCharge();
-    $first = app(TakeSnapshot::class)->capture();
+    $first = app(TakeSnapshot::class)->capture()->snapshot;
 
     $this->travel(2)->hours();
     $second = app(TakeSnapshot::class)->capture();
 
     expect(CostSnapshot::query()->count())->toBe(1)
-        ->and($second->id)->toBe($first->id)
+        ->and($second->written)->toBeFalse()
+        ->and($second->snapshot->id)->toBe($first->id)
         // A no-op capture does not even touch the row.
-        ->and($second->updated_at->toDateTimeString())->toBe($first->updated_at->toDateTimeString());
+        ->and($second->snapshot->updated_at->toDateTimeString())->toBe($first->updated_at->toDateTimeString());
 });
 
 it('updates the same date row when a material input changes', function () {
     $item = snapshotCharge();
-    $first = app(TakeSnapshot::class)->capture();
+    $first = app(TakeSnapshot::class)->capture()->snapshot;
 
     // End the charge as of yesterday: today's projection no longer
     // carries it at all.
@@ -114,16 +119,20 @@ it('updates the same date row when a material input changes', function () {
 
 it('never rewrites fx_used after capture', function () {
     snapshotCharge();
-    $snapshot = app(TakeSnapshot::class)->capture();
+    $snapshot = app(TakeSnapshot::class)->capture()->snapshot;
 
     CostSnapshot::query()->whereKey($snapshot->id)->update(['fx_used' => ['source' => 'manual', 'rate' => 1]]);
 
     snapshotCharge(['name' => 'Second charge', 'amount' => '10.00']);
     app(TakeSnapshot::class)->capture();
 
+    $capture = app(TakeSnapshot::class)->capture();
+
     $snapshot->refresh();
 
-    expect($snapshot->fx_used)->toBe(['source' => 'manual', 'rate' => 1])
+    expect($capture?->written)->toBeFalse()
+        ->and($capture?->snapshot->id)->toBe($snapshot->id)
+        ->and($snapshot->fx_used)->toBe(['source' => 'manual', 'rate' => 1])
         ->and($snapshot->totals['PLN']['monthly_minor'])->toBe(6000);
 });
 
@@ -131,29 +140,148 @@ it('replays an explicit past date from cost item history', function () {
     $item = snapshotCharge(['valid_from' => '2026-07-01']);
 
     $july = app(TakeSnapshot::class)->capture(new CarbonImmutable('2026-07-31 12:00:00'));
-    expect($july->totals['PLN']['monthly_minor'])->toBe(5000);
+    expect($july?->snapshot->totals['PLN']['monthly_minor'])->toBe(5000);
 
     // The charge was stopped mid-July: replaying July now sees it end.
     app(EndManualCost::class)->end($item, ['valid_to' => '2026-07-15']);
 
     $replay = app(TakeSnapshot::class)->capture(new CarbonImmutable('2026-07-31 12:00:00'));
 
-    expect($replay->id)->toBe($july->id)
-        ->and($replay->totals)->toBe([]);
+    expect($replay?->written)->toBeTrue()
+        ->and($replay?->snapshot->id)->toBe($july?->snapshot->id)
+        ->and($replay?->snapshot->totals)->toBe([]);
 });
 
-it('excludes observation times from the material checksum', function () {
+it('adds no noise when a re-sync touches observation times only', function () {
     $item = snapshotCharge();
     app(TakeSnapshot::class)->capture();
 
-    // A re-sync touches observed_at in place without changing inputs.
+    // A no-change re-sync bumps observed_at in place; the stored output
+    // is identical, so the capture must dedupe.
     $item->observed_at = now()->addDays(3);
     $item->save();
 
     $second = app(TakeSnapshot::class)->capture();
 
-    expect($second->id)->toBe(CostSnapshot::query()->sole()->id)
+    expect($second?->snapshot->id)->toBe(CostSnapshot::query()->sole()->id)
+        ->and($second->written)->toBeFalse()
         ->and(CostSnapshot::query()->count())->toBe(1);
+});
+
+it('records staleness that develops between captures', function () {
+    // A synced quote observed today is fresh.
+    $account = ProviderAccount::factory()->create();
+    $service = Service::factory()->discovered($account)->create();
+    $item = CostItem::factory()->subscriptionQuote()->create([
+        'amount_minor' => 700,
+        'currency' => 'EUR',
+        'observed_at' => now(),
+    ]);
+    $item->services()->attach($service->id);
+
+    app(TakeSnapshot::class)->capture();
+    expect(CostSnapshot::query()->sole()->completeness['stale'])->toBe(0);
+
+    // Eight days pass with no new observation: the evidence goes stale,
+    // and the same-date capture must record the flip.
+    $this->travel(8)->days();
+    $second = app(TakeSnapshot::class)->capture();
+
+    expect($second->written)->toBeTrue()
+        ->and($second->snapshot->refresh()->completeness['stale'])->toBe(1);
+});
+
+it('re-captures when the calculation version changes', function () {
+    snapshotCharge();
+    app(TakeSnapshot::class)->capture();
+    expect(CostSnapshot::query()->sole()->calculation_version)->toBe('v1');
+
+    config(['costs.calculation_version' => 'v2']);
+
+    $second = app(TakeSnapshot::class)->capture();
+
+    expect($second->written)->toBeTrue()
+        ->and($second->snapshot->refresh()->calculation_version)->toBe('v2')
+        ->and(CostSnapshot::query()->count())->toBe(1);
+});
+
+it('is written when a manual cost is updated', function () {
+    $item = snapshotCharge();
+    app(TakeSnapshot::class)->capture();
+
+    app(UpdateManualCost::class)->update($item, [
+        'vendor' => null,
+        'name' => 'Snapshot service',
+        'category' => 'saas',
+        'unknown_amount' => false,
+        'amount' => '75.00',
+        'currency' => 'PLN',
+        'period' => 'monthly',
+        'valid_from' => '2026-08-01',
+        'valid_to' => null,
+        'renews_at' => null,
+        'auto_renew' => false,
+        'url' => null,
+        'notes' => null,
+        'price_changed' => true,
+    ]);
+
+    expect(CostSnapshot::query()->sole()->totals['PLN']['monthly_minor'])->toBe(7500);
+});
+
+it('reports written versus deduped through the command', function () {
+    $this->artisan('lafiel:snapshot')
+        ->expectsOutputToContain('written')
+        ->assertSuccessful();
+
+    $this->artisan('lafiel:snapshot')
+        ->expectsOutputToContain('unchanged')
+        ->assertSuccessful();
+});
+
+it('rejects invalid and future dates', function () {
+    $this->artisan('lafiel:snapshot', ['--date' => 'not-a-date'])
+        ->expectsOutputToContain('The date must be a Y-m-d value.')
+        ->assertFailed();
+
+    $this->artisan('lafiel:snapshot', ['--date' => '2027-01-01'])
+        ->expectsOutputToContain('The date must not be in the future.')
+        ->assertFailed();
+
+    expect(CostSnapshot::query()->count())->toBe(0);
+});
+
+it('asserts every completeness counter in the stored payload', function () {
+    // One quote observed long ago (stale) plus a fresh one-time charge
+    // without a price (unknown).
+    $account = ProviderAccount::factory()->create();
+    $service = Service::factory()->discovered($account)->create();
+    $stale = CostItem::factory()->subscriptionQuote()->create([
+        'amount_minor' => 700,
+        'currency' => 'EUR',
+        'observed_at' => now()->subDays(30),
+    ]);
+    $stale->services()->attach($service->id);
+
+    CostItem::factory()->unknownAmount()->create([
+        'charge_kind' => 'one_time',
+        'period' => 'one_time',
+        'observed_at' => now(),
+    ]);
+
+    $snapshot = app(TakeSnapshot::class)->capture()?->snapshot;
+
+    // The projector counts the unknown-amount one-time charge as
+    // unknown only — the one_time counter applies to priced charges.
+    expect($snapshot)->not->toBeNull()
+        ->and($snapshot->completeness)->toBe([
+            'priced' => 1,
+            'unknown' => 1,
+            'estimate' => 0,
+            'stale' => 1,
+            'shared_unallocated' => 0,
+            'one_time' => 0,
+        ]);
 });
 
 it('is written by the lafiel:snapshot command and replayable with a date', function () {

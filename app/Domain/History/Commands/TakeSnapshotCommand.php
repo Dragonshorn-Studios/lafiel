@@ -6,32 +6,46 @@ use App\Domain\History\TakeSnapshot;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 
-class TakeSnapshotCommand extends Command
+final class TakeSnapshotCommand extends Command
 {
     protected $signature = 'lafiel:snapshot
-        {--date= : Capture an explicit date (Y-m-d) instead of today}';
+        {--date= : Capture a specific date (Y-m-d, not in the future) instead of today}';
 
-    protected $description = 'Capture the daily cost snapshot (replay a past date with --date)';
+    protected $description = 'Capture the daily cost snapshot (replays a specific date with --date)';
 
     public function handle(TakeSnapshot $takeSnapshot): int
     {
-        $date = $this->option('date');
+        $onDate = CarbonImmutable::now();
 
-        if (is_string($date) && $date !== '') {
-            try {
-                $onDate = new CarbonImmutable($date);
-            } catch (\InvalidArgumentException) {
-                $this->error('The date must be a valid Y-m-d value.');
+        if (($date = $this->option('date')) !== null) {
+            if (! is_string($date) || ! CarbonImmutable::hasFormat($date, 'Y-m-d')) {
+                $this->error('The date must be a Y-m-d value.');
 
                 return self::FAILURE;
             }
-        } else {
-            $onDate = CarbonImmutable::now();
+
+            $onDate = CarbonImmutable::createFromFormat('!Y-m-d', $date);
+
+            if ($onDate->isAfter(CarbonImmutable::today())) {
+                $this->error('The date must not be in the future.');
+
+                return self::FAILURE;
+            }
         }
 
-        $snapshot = $takeSnapshot->capture($onDate);
+        $capture = $takeSnapshot->capture($onDate);
 
-        $this->info("Snapshot for {$snapshot->snapshot_date->format('Y-m-d')} (v{$snapshot->calculation_version}).");
+        if ($capture === null) {
+            $this->error('Snapshot capture failed. Check the logs.');
+
+            return self::FAILURE;
+        }
+
+        $this->info(
+            $capture->written
+                ? "Snapshot for {$capture->snapshot->snapshot_date->format('Y-m-d')} written."
+                : "Snapshot for {$capture->snapshot->snapshot_date->format('Y-m-d')} unchanged.",
+        );
 
         return self::SUCCESS;
     }

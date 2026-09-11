@@ -19,6 +19,8 @@ use Illuminate\Validation\ValidationException;
 
 class CreateManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * Create one manual charge with optional renewal and coverage. Every
      * charge carries its own logical charge key, so several independent
@@ -71,8 +73,9 @@ class CreateManualCost
             return $costItem;
         });
 
-        // A material input changed: capture (the checksum dedupes).
-        app(TakeSnapshot::class)->capture();
+        // Inputs may have changed: capture; the checksum dedupes when
+        // the stored output would not change.
+        $this->takeSnapshot->capture();
 
         return $costItem;
     }

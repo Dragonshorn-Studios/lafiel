@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class EndManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * End a manual charge. The end date is the item's last charged day:
      * the item leaves future projections and stays in history. Ending an
@@ -40,7 +42,7 @@ class EndManualCost
         });
 
         if ($ended) {
-            app(TakeSnapshot::class)->capture();
+            $this->takeSnapshot->capture();
         }
     }
 }
