@@ -33,4 +33,17 @@ return [
         'max_delay_ms' => 15000,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Service lifecycle
+    |--------------------------------------------------------------------------
+    |
+    | A provider-discovered service becomes inactive only after this many
+    | successful complete inventories have omitted it. Partial or failed
+    | inventory never advances the counter: absence is not cancellation.
+    |
+    */
+
+    'inactive_after_complete_runs' => env('LAFIEL_INACTIVE_AFTER_COMPLETE_RUNS', 3),
+
 ];

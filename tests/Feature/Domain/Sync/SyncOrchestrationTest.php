@@ -144,7 +144,7 @@ it('persists a complete batch and finishes the run as succeeded', function () {
         ->and($run->finished_at)->not->toBeNull()
         ->and($run->counts)->toBe([
             'inventory' => ['seen' => 2, 'created' => 2, 'updated' => 0],
-            'cost_facts' => ['seen' => 1, 'created' => 1, 'superseded' => 0, 'updated' => 0, 'renewals' => 1],
+            'cost_facts' => ['seen' => 1, 'created' => 1, 'superseded' => 0, 'updated' => 0, 'renewals' => 1, 'ended' => 0],
         ]);
 
     // Services carry provider identity and seen timestamps on creation.
@@ -211,7 +211,7 @@ it('re-syncs identical data without creating duplicates', function () {
         // The service row was not touched; the fact refreshed its observation.
         ->and(Service::query()->sole()->updated_at->equalTo($serviceUpdatedAt))->toBeTrue()
         ->and($second->counts['inventory'])->toBe(['seen' => 1, 'created' => 0, 'updated' => 0])
-        ->and($second->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 1, 'renewals' => 1]);
+        ->and($second->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 1, 'renewals' => 1, 'ended' => 0]);
 
     expect($first->id)->not->toBe($second->id);
 });
@@ -234,7 +234,7 @@ it('supersedes the open fact when the provider reports a new price', function ()
     $run = runSync($account, $adapter)->fresh();
 
     $items = CostItem::query()->orderBy('id')->get();
-    expect($run->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 1, 'superseded' => 1, 'updated' => 0, 'renewals' => 1])
+    expect($run->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 1, 'superseded' => 1, 'updated' => 0, 'renewals' => 1, 'ended' => 0])
         ->and($items)->toHaveCount(2);
 
     $closed = $items->first();
@@ -281,7 +281,7 @@ it('upgrades evidence in place when only the evidence state improves', function 
     $run = runSync($account, $adapter)->fresh();
 
     expect(CostItem::query()->count())->toBe(1)
-        ->and($run->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 1, 'renewals' => 0]);
+        ->and($run->counts['cost_facts'])->toBe(['seen' => 1, 'created' => 0, 'superseded' => 0, 'updated' => 1, 'renewals' => 0, 'ended' => 0]);
 
     $item = CostItem::query()->sole();
     expect($item->evidence_state)->toBe(EvidenceState::Actual)

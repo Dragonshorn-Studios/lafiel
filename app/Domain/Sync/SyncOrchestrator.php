@@ -2,6 +2,7 @@
 
 namespace App\Domain\Sync;
 
+use App\Domain\Inventory\Lifecycle\ApplyInventoryLifecycle;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\CapabilityOutcome;
 use App\Domain\Providers\Dtos\CostFactBatch;
@@ -15,6 +16,7 @@ use App\Domain\Providers\RecordCapabilityStates;
 use App\Domain\Support\Redaction\Redactor;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
+use App\Domain\Sync\Persistence\EndAbsentCostFacts;
 use App\Domain\Sync\Persistence\PersistCostFacts;
 use App\Domain\Sync\Persistence\PersistInventoryBatch;
 use App\Domain\Sync\Retry\RetryPolicy;
@@ -28,8 +30,9 @@ use Illuminate\Support\Facades\Log;
  * The sync algorithm for one provider account, per docs/architecture.md:
  * lock, claim the run, validate credentials only when needed, fetch
  * outside a transaction, validate batch invariants, persist
- * idempotently in a short transaction, finish with counts and sanitized
- * warnings. Lifecycle transitions land with the service-lifecycle issue.
+ * idempotently in a short transaction, apply lifecycle transitions only
+ * after a complete inventory, and finish with counts and sanitized
+ * warnings.
  */
 final class SyncOrchestrator
 {
@@ -39,6 +42,8 @@ final class SyncOrchestrator
         private readonly ValidateBatches $validation,
         private readonly PersistInventoryBatch $persistInventory,
         private readonly PersistCostFacts $persistCostFacts,
+        private readonly EndAbsentCostFacts $endAbsentCostFacts,
+        private readonly ApplyInventoryLifecycle $applyLifecycle,
         private readonly RecordCapabilityStates $recordCapabilities,
         private readonly ReconcileStaleRuns $reconcile,
     ) {}
@@ -215,6 +220,12 @@ final class SyncOrchestrator
             if ($costBatch !== null && $costBatch->completeness->producedUsableData()) {
                 $facts = $this->persistCostFacts->persist($account->provider_key, $account->id, $costBatch, $persisted->services);
                 $costCounts = ['seen' => count($costBatch->facts), 'created' => $facts->created, 'superseded' => $facts->superseded, 'updated' => $facts->updated, 'renewals' => $facts->renewals];
+
+                // A complete batch that no longer reports a charge is
+                // evidence the charge ended; partial batches end nothing.
+                if ($costBatch->completeness === BatchCompleteness::Complete) {
+                    $costCounts['ended'] = $this->endAbsentCostFacts->end($account->provider_key, $account->id, $costBatch);
+                }
             }
 
             return [$inventoryCounts, $costCounts];
@@ -225,6 +236,9 @@ final class SyncOrchestrator
         if ($costCounts !== null) {
             $counts['cost_facts'] = $costCounts;
         }
+
+        // --- Lifecycle (step 7): only a complete inventory may mark missing --
+        $this->applyLifecycle->apply($account, $inventoryBatch);
 
         $this->recordCapabilities->record($account, $capabilities, $outcomes, $now);
 
