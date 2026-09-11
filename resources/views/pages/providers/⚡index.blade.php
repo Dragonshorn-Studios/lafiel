@@ -369,7 +369,7 @@ new #[Title('Providers')] class extends Component {
     </flux:card>
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
-    <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-xl sm:max-w-2xl">
+    <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
         <flux:heading size="lg" class="mb-2">
             {{ $editingAccountId !== null ? __('Replace OVH credentials') : __('Connect OVHcloud') }}
         </flux:heading>

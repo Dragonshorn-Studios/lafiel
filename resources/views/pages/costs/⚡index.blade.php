@@ -239,7 +239,7 @@ new #[Title('Costs')] class extends Component {
     @endif
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
-    <flux:modal name="cost-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-xl sm:max-w-2xl">
+    <flux:modal name="cost-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
         <flux:heading size="lg" class="mb-6">
             {{ $editingCostItemId !== null ? __('Edit cost') : __('Add manual cost') }}
         </flux:heading>
