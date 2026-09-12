@@ -22,6 +22,7 @@ use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\ProviderException;
 use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
+use Carbon\Exceptions\InvalidFormatException;
 
 /**
  * Read-only Cloudflare adapter for inventory and fixed subscriptions.
@@ -78,7 +79,10 @@ final class CloudflareProviderAdapter implements ProviderAdapter
         // The account listing is the primary observation: its failure
         // fails the whole phase, like OVH's service listing — the
         // exception propagates and the run keeps its last good data.
-        foreach ($this->collect($api, '/accounts', $warnings) as $account) {
+        [$accounts, $accountsTruncated] = $this->collect($api, '/accounts', $warnings);
+        $partial = $accountsTruncated;
+
+        foreach ($accounts as $account) {
             $item = $this->accountItem($account);
 
             if ($item === null) {
@@ -92,7 +96,8 @@ final class CloudflareProviderAdapter implements ProviderAdapter
         }
 
         try {
-            $zones = $this->collect($api, '/zones', $warnings);
+            [$zones, $zonesTruncated] = $this->collect($api, '/zones', $warnings);
+            $partial = $partial || $zonesTruncated;
         } catch (InvalidCredentialsException $exception) {
             throw $exception;
         } catch (ProviderException $exception) {
@@ -146,7 +151,8 @@ final class CloudflareProviderAdapter implements ProviderAdapter
             }
 
             try {
-                $subscriptions = $this->collect($api, $path, $warnings);
+                [$subscriptions, $truncated] = $this->collect($api, $path, $warnings);
+                $degraded = $degraded || $truncated;
             } catch (InvalidCredentialsException $exception) {
                 throw $exception;
             } catch (ProviderException $exception) {
@@ -176,7 +182,7 @@ final class CloudflareProviderAdapter implements ProviderAdapter
 
                 $seenSubscriptionIds[$subscriptionId] = true;
 
-                $fact = $this->factFor($subscription, $item, $context, $unknownPrices, $skippedStates);
+                $fact = $this->factFor($subscription, $item, $context, $warnings, $unknownPrices, $skippedStates);
 
                 if ($fact !== null) {
                     $facts[] = $fact;
@@ -226,8 +232,13 @@ final class CloudflareProviderAdapter implements ProviderAdapter
      * when the subscription's state is not one we can price.
      *
      * @param  array<string, mixed>  $subscription
+     * @param  list<string>  $warnings
+     * @param  int  $unknownPrices  incremented when the subscription's
+     *                              price cannot be stated honestly
+     * @param  int  $skippedStates  incremented for states that carry no
+     *                              priceable fact
      */
-    private function factFor(array $subscription, InventoryItem $service, SyncContext $context, int &$unknownPrices, int &$skippedStates): ?CostFact
+    private function factFor(array $subscription, InventoryItem $service, SyncContext $context, array &$warnings, int &$unknownPrices, int &$skippedStates): ?CostFact
     {
         $state = mb_strtolower((string) ($subscription['state'] ?? ''));
 
@@ -241,9 +252,13 @@ final class CloudflareProviderAdapter implements ProviderAdapter
         $currency = isset($ratePlan['currency']) && is_string($ratePlan['currency']) ? mb_strtoupper(trim($ratePlan['currency'])) : '';
 
         // The fixed components sum into one price; metered components
-        // carry no fixed price and simply add nothing.
+        // carry no fixed price and simply add nothing. A fixed price
+        // that cannot be parsed exactly makes the whole sum unreliable:
+        // keeping the parseable part would understate an actual, so
+        // the subscription stays unknown instead.
         $minorTotal = 0;
         $hasFixedPrice = false;
+        $unparseableFixedPrice = false;
 
         foreach (is_array($ratePlan['components'] ?? null) ? $ratePlan['components'] : [] as $component) {
             if (! is_array($component) || ! array_key_exists('price', $component)) {
@@ -259,6 +274,8 @@ final class CloudflareProviderAdapter implements ProviderAdapter
             $componentMinor = $this->toMinor((string) $price);
 
             if ($componentMinor === null) {
+                $unparseableFixedPrice = true;
+
                 continue;
             }
 
@@ -268,11 +285,12 @@ final class CloudflareProviderAdapter implements ProviderAdapter
 
         $amount = null;
 
-        if ($hasFixedPrice && $currency !== '') {
+        if ($hasFixedPrice && ! $unparseableFixedPrice && $currency !== '') {
             $amount = Money::ofMinor($minorTotal, $currency);
         } else {
-            // A price with no currency, or no fixed price at all, is
-            // honestly unknown — never inferred from the plan name.
+            // No fixed price, an unreadable one, or no currency: the
+            // price is honestly unknown — never inferred or partially
+            // guessed from the plan name.
             $unknownPrices++;
         }
 
@@ -286,9 +304,9 @@ final class CloudflareProviderAdapter implements ProviderAdapter
             period: $this->periodFor($subscription['frequency'] ?? null),
             evidenceState: EvidenceState::Actual,
             amount: $amount,
-            validFrom: $this->dateOr($currentPeriod['start'] ?? null, $context->now),
+            validFrom: $this->dateOr($currentPeriod['start'] ?? null, $context->now, $warnings, 'period start'),
             taxBasis: TaxBasis::Unknown,
-            renewsAt: $this->dateOr($currentPeriod['end'] ?? null, null),
+            renewsAt: $this->dateOr($currentPeriod['end'] ?? null, null, $warnings, 'period end'),
             autoRenew: (bool) ($subscription['auto_renew'] ?? false),
             allocationState: AllocationState::Direct,
             notes: isset($ratePlan['public_name']) && is_string($ratePlan['public_name']) && $ratePlan['public_name'] !== ''
@@ -315,8 +333,8 @@ final class CloudflareProviderAdapter implements ProviderAdapter
      * Decimal string to integer minor units. `XXX` ("no currency") is
      * a parse-only placeholder so the Money regex stays the single
      * source of truth; a value Money rejects (more than two
-     * fractional digits) contributes nothing and leaves the
-     * subscription unpriced rather than inventing an amount.
+     * fractional digits) returns null and the caller prices the whole
+     * subscription unknown rather than summing a partial actual.
      */
     private function toMinor(string $price): ?int
     {
@@ -328,10 +346,15 @@ final class CloudflareProviderAdapter implements ProviderAdapter
     }
 
     /**
-     * @return ?CarbonImmutable null when the date is missing or
-     *                          unparseable — the caller decides the fallback
+     * Returns `$fallback` when the date is missing or unparseable;
+     * the caller picks it per field (the run time for a period start,
+     * null for a period end). An absent date is normal and stays
+     * silent; a present-but-unparseable one is warned about, because
+     * a silently dropped renewal date would freeze at its last value.
+     *
+     * @param  list<string>  $warnings
      */
-    private function dateOr(mixed $value, ?CarbonImmutable $fallback): ?CarbonImmutable
+    private function dateOr(mixed $value, ?CarbonImmutable $fallback, array &$warnings, string $field): ?CarbonImmutable
     {
         if (! is_string($value) || $value === '') {
             return $fallback;
@@ -339,7 +362,9 @@ final class CloudflareProviderAdapter implements ProviderAdapter
 
         try {
             return new CarbonImmutable($value);
-        } catch (\Exception) {
+        } catch (InvalidFormatException) {
+            $warnings[] = sprintf('an unparseable %s date was ignored.', $field);
+
             return $fallback;
         }
     }
@@ -391,11 +416,13 @@ final class CloudflareProviderAdapter implements ProviderAdapter
      * keeps a misbehaving total from spinning forever.
      *
      * @param  list<string>  $warnings
-     * @return list<array<string, mixed>>
+     * @return array{0: list<array<string, mixed>>, 1: bool} the entries
+     *                                                       plus whether the walk was cut short
      */
     private function collect(CloudflareApi $api, string $path, array &$warnings): array
     {
         $items = [];
+        $truncated = false;
         $page = 1;
         $totalPages = 1;
 
@@ -413,16 +440,26 @@ final class CloudflareProviderAdapter implements ProviderAdapter
             }
 
             $info = is_array($envelope['result_info'] ?? null) ? $envelope['result_info'] : [];
-            $totalPages = isset($info['total_pages']) && is_numeric($info['total_pages'])
-                ? max(1, (int) $info['total_pages'])
-                : $page;
+
+            if (isset($info['total_pages']) && is_numeric($info['total_pages'])) {
+                $totalPages = max(1, (int) $info['total_pages']);
+            } else {
+                // No readable page count: walking on would be a guess.
+                // Stop here, but say so — silent truncation would leave
+                // the batch complete-looking while resources are lost.
+                $totalPages = $page;
+                $truncated = true;
+                $warnings[] = sprintf('listing [%s] gave no readable page count; stopped after page %d.', $path, $page);
+            }
+
             $page++;
         } while ($page <= min($totalPages, self::MAX_PAGES));
 
         if ($totalPages > self::MAX_PAGES) {
             $warnings[] = sprintf('listing [%s] has more than %d pages; the rest was not read.', $path, self::MAX_PAGES);
+            $truncated = true;
         }
 
-        return $items;
+        return [$items, $truncated];
     }
 }

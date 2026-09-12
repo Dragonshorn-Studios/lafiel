@@ -165,3 +165,52 @@ it('keeps everything unpriced when the catalog cannot be read', function () {
         ->and(collect($facts->facts)->every(fn ($fact): bool => $fact->amount === null))->toBeTrue()
         ->and($facts->warnings)->toContain('pricing join failed: Hetzner Cloud API server error for [/pricing] (HTTP 503).');
 });
+
+it('fails the whole inventory when the primary server listing fails', function () {
+    $api = (new FakeHetznerCloudApi)->throwOn('/servers', [
+        new TransientProviderException('Hetzner Cloud API server error for [/servers] (HTTP 503).'),
+    ]);
+
+    // The server listing is the primary observation: its failure must
+    // propagate so the run fails and keeps its last good data.
+    expect(fn () => hetznerAdapter($api)->fetchInventory(hetznerContext()))
+        ->toThrow(TransientProviderException::class);
+});
+
+it('walks paginated server listings', function () {
+    $pageOne = hetznerCloudFixture('servers.json');
+    $pageOne['meta']['pagination'] = ['page' => 1, 'per_page' => 1, 'last_page' => 2, 'total_entries' => 3];
+
+    $api = new FakeHetznerCloudApi([
+        '/servers' => fn (array $query): array => ((int) ($query['page'] ?? 1)) === 1
+            ? $pageOne
+            : [
+                'servers' => [
+                    ['id' => 4200003, 'name' => 'cache-synthetic-03', 'server_type' => ['name' => 'cx22'], 'datacenter' => ['location' => ['name' => 'fsn1']]],
+                ],
+                'meta' => ['pagination' => ['page' => 2, 'per_page' => 1, 'last_page' => 2, 'total_entries' => 3]],
+            ],
+        '/load_balancers' => hetznerCloudFixture('load-balancers.json'),
+        '/primary_ips' => hetznerCloudFixture('primary-ips.json'),
+        '/floating_ips' => hetznerCloudFixture('floating-ips.json'),
+        '/volumes' => hetznerCloudFixture('volumes.json'),
+    ]);
+
+    $batch = hetznerAdapter($api)->fetchInventory(hetznerContext());
+
+    expect(count($batch->items))->toBe(7)
+        ->and($api->callCount('/servers'))->toBe(2);
+});
+
+it('warns instead of silently truncating when the page count is unreadable', function () {
+    $body = hetznerCloudFixture('servers.json');
+    unset($body['meta']['pagination']['last_page']);
+
+    $api = new FakeHetznerCloudApi(hetznerRunPayload());
+    $api->responses['/servers'] = $body;
+
+    $batch = hetznerAdapter($api)->fetchInventory(hetznerContext());
+
+    expect($batch->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($batch->warnings)->toContain('listing [/servers] gave no readable page count; stopped after page 1.');
+});

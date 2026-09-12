@@ -11,10 +11,10 @@ use Illuminate\Support\Facades\Http;
  * The Laravel HTTP client behind the read-only HetznerCloudApi
  * interface. HTTP failures become the typed provider exceptions with
  * sanitized messages: 401/403 mean the token was rejected and are
- * never retried; 429 (Hetzner also sends Retry-After), 5xx, rate
- * limits, and connection failures are transient. Messages carry only
- * the request path and status code — never credential material or
- * response bodies.
+ * never retried; 429, 5xx, and connection failures are transient
+ * (any provider retry-after hint is ignored — pacing belongs to the
+ * orchestrator's bounded backoff). Messages carry only the request
+ * path and status code — never credential material or response bodies.
  */
 final class HttpHetznerCloudApi implements HetznerCloudApi
 {

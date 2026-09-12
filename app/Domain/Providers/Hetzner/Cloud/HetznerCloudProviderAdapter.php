@@ -61,7 +61,10 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
     /**
      * Pricing joins captured during the inventory fetch (same run,
      * same adapter instance): external id => [pricing table, type,
-     * location, volume size in GB or null].
+     * location, volume size in GB or null]. The adapter is a container
+     * singleton, so the map is reset at the start of every inventory
+     * fetch — without that, entries from prior runs and other accounts
+     * would accumulate for the life of a queue worker.
      *
      * @var array<string, array{0: string, 1: string, 2: string, 3: ?int}>
      */
@@ -90,6 +93,12 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
 
     public function fetchInventory(SyncContext $context): InventoryBatch
     {
+        // Cost facts are built from these joins; they describe this
+        // observation only. Fetching inventory is what starts a run's
+        // join state — a fetchCostFacts without a same-instance
+        // fetchInventory before it finds nothing to price from.
+        $this->priceJoins = [];
+
         $api = $this->buildApi->build($context->credentials);
         $warnings = [];
         $items = [];
@@ -97,7 +106,8 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
 
         foreach (self::SECTIONS as $path => [$collectionKey, $category, $joinTable, $primary]) {
             try {
-                $resources = $this->collect($api, $path, $collectionKey, $warnings);
+                [$resources, $truncated] = $this->collect($api, $path, $collectionKey, $warnings);
+                $partial = $partial || $truncated;
             } catch (InvalidCredentialsException $exception) {
                 throw $exception;
             } catch (ProviderException $exception) {
@@ -221,10 +231,9 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
 
     /**
      * One discovered resource in, one inventory item plus its pricing
-     * join out. The join key is the resource type (servers and load
-     * balancers carry it nested); primary IPs and floating IPs may
-     * carry no name — the IP itself is the display name, never an
-     * invented one.
+     * join out. A pricing entry is matched by type and location;
+     * primary IPs and floating IPs may carry no name — the IP itself
+     * is the display name, never an invented one.
      *
      * @param  array<string, mixed>  $resource
      */
@@ -415,11 +424,13 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
      * total from spinning forever.
      *
      * @param  list<string>  $warnings
-     * @return list<array<string, mixed>>
+     * @return array{0: list<array<string, mixed>>, 1: bool} the entries
+     *                                                       plus whether the walk was cut short
      */
     private function collect(HetznerCloudApi $api, string $path, string $collectionKey, array &$warnings): array
     {
         $resources = [];
+        $truncated = false;
         $page = 1;
         $lastPage = 1;
 
@@ -435,16 +446,26 @@ final class HetznerCloudProviderAdapter implements ProviderAdapter
             }
 
             $pagination = is_array($body['meta']['pagination'] ?? null) ? $body['meta']['pagination'] : [];
-            $lastPage = isset($pagination['last_page']) && is_numeric($pagination['last_page'])
-                ? max(1, (int) $pagination['last_page'])
-                : $page;
+
+            if (isset($pagination['last_page']) && is_numeric($pagination['last_page'])) {
+                $lastPage = max(1, (int) $pagination['last_page']);
+            } else {
+                // No readable page count: walking on would be a guess.
+                // Stop here, but say so — silent truncation would leave
+                // the batch complete-looking while resources are lost.
+                $lastPage = $page;
+                $truncated = true;
+                $warnings[] = sprintf('listing [%s] gave no readable page count; stopped after page %d.', $path, $page);
+            }
+
             $page++;
         } while ($page <= min($lastPage, self::MAX_PAGES));
 
         if ($lastPage > self::MAX_PAGES) {
             $warnings[] = sprintf('listing [%s] has more than %d pages; the rest was not read.', $path, self::MAX_PAGES);
+            $truncated = true;
         }
 
-        return $resources;
+        return [$resources, $truncated];
     }
 }

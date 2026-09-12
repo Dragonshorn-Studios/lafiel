@@ -28,7 +28,13 @@ class CreateManualCost
      * overlays) coexist and each is counted once by the projection.
      * When `covers_service_id` points at an existing service, no new
      * service is created: the charge overlays that service through the
-     * same mechanism a provider-discovered service would use.
+     * same mechanism a provider-discovered service would use — and the
+     * charge is flagged `is_manual_override`, because covering a
+     * discovered service is a conscious answer to its price. The
+     * projection lets that override stand in for the provider's
+     * unknown (see CostProjector::overriddenUnknowns()); add-on
+     * charges the provider already prices should be recorded without
+     * coverage or on a separate service.
      *
      * @param  array<string, mixed>  $input
      *

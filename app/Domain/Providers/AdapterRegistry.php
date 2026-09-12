@@ -7,10 +7,9 @@ use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 
 /**
  * Registry of provider adapters by provider key. Registered as a
- * singleton. No adapter ships yet — the first real adapter (OVH,
- * separate issue) will register itself here at boot; tests register
- * fakes. The registry resolves adapters only — it never persists or
- * fetches on its own.
+ * singleton; adapters register themselves at boot (OVH, Cloudflare,
+ * Contabo, Hetzner Cloud) and tests register fakes. The registry
+ * resolves adapters only — it never persists or fetches on its own.
  */
 final class AdapterRegistry
 {

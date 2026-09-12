@@ -8,6 +8,7 @@ use App\Domain\Providers\Actions\UpdateProviderCredentials;
 use App\Domain\Providers\Actions\VerifyCredentials;
 use App\Domain\Providers\CredentialSchemas;
 use App\Domain\Providers\Enums\ConnectionStatus;
+use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Sync\Actions\RequestSync;
 use Flux\Flux;
@@ -62,11 +63,19 @@ new #[Title('Providers')] class extends Component {
 
     /**
      * The credential schema behind the panel's selected provider.
+     * `providerKey` is a public Livewire property — a client can set
+     * it to anything — so rendering falls back to a registered schema
+     * instead of erroring; the connect/update actions still reject an
+     * unknown key explicitly.
      */
     #[Computed]
     public function activeSchema(): string
     {
-        return $this->schemas->for($this->providerKey);
+        try {
+            return $this->schemas->for($this->providerKey);
+        } catch (UnsupportedProviderException) {
+            return $this->schemas->for((string) array_key_first($this->schemas->options()));
+        }
     }
 
     public function updatedProviderKey(): void
@@ -100,7 +109,7 @@ new #[Title('Providers')] class extends Component {
             }
 
             foreach ($this->activeSchema::fields() as $field) {
-                if ($field->type !== 'password' && isset($payload[$field->name])) {
+                if (! $field->isSecret() && isset($payload[$field->name])) {
                     $this->credential[$field->name] = (string) $payload[$field->name];
                 }
             }
@@ -114,7 +123,15 @@ new #[Title('Providers')] class extends Component {
     {
         $validated = $this->validate($this->formRules());
 
-        app(ConnectProviderAccount::class)->connect($this->providerKey, $this->actionInput($validated));
+        try {
+            app(ConnectProviderAccount::class)->connect($this->providerKey, $this->actionInput($validated));
+        } catch (UnsupportedProviderException) {
+            // `providerKey` is client-editable; an unknown one is a
+            // form error, not a server error.
+            $this->addError('providerKey', __('This provider is not available.'));
+
+            return;
+        }
 
         $this->closePanel();
 
@@ -127,7 +144,13 @@ new #[Title('Providers')] class extends Component {
 
         $validated = $this->validate($this->formRules());
 
-        app(UpdateProviderCredentials::class)->update($account, $this->actionInput($validated));
+        try {
+            app(UpdateProviderCredentials::class)->update($account, $this->actionInput($validated));
+        } catch (UnsupportedProviderException) {
+            $this->addError('providerKey', __('This provider is not available.'));
+
+            return;
+        }
 
         $this->closePanel();
 
@@ -264,7 +287,7 @@ new #[Title('Providers')] class extends Component {
     {
         try {
             return $this->schemas->for($providerKey)::label();
-        } catch (\Throwable) {
+        } catch (UnsupportedProviderException) {
             return $providerKey;
         }
     }
@@ -490,7 +513,7 @@ new #[Title('Providers')] class extends Component {
             <flux:input wire:model="displayName" :label="__('Display name')" required placeholder="{{ __('Main account') }}" />
 
             @foreach ($this->activeSchema::fields() as $field)
-                @if ($field->type === 'select')
+                @if ($field->isSelect())
                     <flux:select wire:model="credential.{{ $field->name }}" :label="__($field->label)">
                         @foreach ($field->options as $option)
                             <flux:select.option :value="$option">{{ $option }}</flux:select.option>
@@ -500,7 +523,7 @@ new #[Title('Providers')] class extends Component {
                     <flux:input
                         wire:model="credential.{{ $field->name }}"
                         :label="__($field->label)"
-                        :type="$field->type === 'password' ? 'password' : 'text'"
+                        :type="$field->isSecret() ? 'password' : 'text'"
                         required
                         autocomplete="off"
                         :placeholder="$field->placeholder !== null ? __($field->placeholder) : null"

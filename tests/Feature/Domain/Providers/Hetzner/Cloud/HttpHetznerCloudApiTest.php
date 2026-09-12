@@ -58,3 +58,14 @@ it('maps connection failures to transient failures', function () {
     expect(fn () => (new HttpHetznerCloudApi(hetznerCloudPayload()['api_token']))->get('/servers'))
         ->toThrow(TransientProviderException::class);
 });
+
+it('maps an unreadable body to a transient failure', function () {
+    Http::preventStrayRequests();
+
+    Http::fake([
+        'api.hetzner.cloud/v1/*' => Http::response('gateway garbage'),
+    ]);
+
+    expect(fn () => (new HttpHetznerCloudApi(hetznerCloudPayload()['api_token']))->get('/servers'))
+        ->toThrow(TransientProviderException::class);
+});

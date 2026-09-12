@@ -351,3 +351,47 @@ it('always reports usage as partial so the total is never mistaken for complete'
     expect($batch->completenessFor(ProviderCapability::Usage))->toBe(BatchCompleteness::Partial)
         ->and($batch->warnings)->toContain('metered usage is unavailable — fixed subscriptions only; the Cloudflare total is not complete.');
 });
+
+it('prices a subscription unknown when any fixed component is unparseable', function () {
+    $api = new FakeCloudflareApi([
+        '/accounts/account-synthetic-01/subscriptions' => cloudflareEnvelope([
+            cloudflareSubscription([
+                'id' => 'sub-mixed-synthetic',
+                'rate_plan' => [
+                    'id' => 'plan-mixed',
+                    'public_name' => 'Bundle',
+                    'currency' => 'USD',
+                    'components' => [
+                        ['name' => 'Base', 'price' => '10.00'],
+                        ['name' => 'Precision', 'price' => '0.4762'],
+                    ],
+                ],
+            ]),
+        ]),
+        '/zones/zone-synthetic-01/subscriptions' => cloudflareEnvelope([]),
+    ]);
+
+    $batch = cloudflareAdapter($api)->fetchCostFacts(cloudflareContext(), cloudflareInventory());
+
+    // Summing the parseable part would understate an actual — the
+    // subscription stays unknown instead.
+    $fact = collect($batch->facts)->firstWhere('sourceRef', 'cf:subscription:sub-mixed-synthetic');
+
+    expect($fact->amount)->toBeNull()
+        ->and($batch->warnings)->toContain('1 subscription(s) have no fixed price or currency; their charges stay unknown.');
+});
+
+it('warns instead of silently truncating when the page count is unreadable', function () {
+    $body = cloudflareFixture('accounts.json');
+    unset($body['result_info']);
+
+    $api = new FakeCloudflareApi([
+        '/accounts' => $body,
+        '/zones' => cloudflareFixture('zones.json'),
+    ]);
+
+    $batch = cloudflareAdapter($api)->fetchInventory(cloudflareContext());
+
+    expect($batch->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($batch->warnings)->toContain('listing [/accounts] gave no readable page count; stopped after page 1.');
+});
