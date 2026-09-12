@@ -162,6 +162,8 @@ Retry transient 429, 5xx, and timeout failures with bounded exponential backoff 
 
 A failed or partial sync keeps the last good data, marks affected capabilities stale, never writes zero as a substitute for missing data, and never treats absence as cancellation.
 
+A complete cost batch ends the charges it no longer reports, judged per capability: the batch names the capabilities its observation represents (`reportedCapabilities`), and only complete ones open the ending gate. A capability the batch does not represent — Cloudflare's permanently partial metered usage — cannot undercut the evidence of one it does. A batch that names no reported capabilities keeps the conservative rule: every declared cost capability must be complete before anything ends.
+
 ## Security
 
 - Encrypt provider credentials with Laravel and `APP_KEY`.

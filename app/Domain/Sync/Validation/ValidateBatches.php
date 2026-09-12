@@ -15,8 +15,8 @@ final class ValidateBatches
 {
     /** Canonical service categories (docs/integrations.md). */
     public const CATEGORIES = [
-        'compute', 'storage', 'network', 'domain', 'dns', 'database',
-        'observability', 'security', 'email', 'saas', 'other',
+        'account', 'compute', 'storage', 'network', 'domain', 'dns',
+        'database', 'observability', 'security', 'email', 'saas', 'other',
     ];
 
     /**

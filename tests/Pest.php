@@ -84,3 +84,36 @@ function ovhFixtureDir(): string
 {
     return __DIR__.'/Fixtures/Ovh';
 }
+
+/**
+ * A synthetic Cloudflare credential payload for tests. The value is
+ * fake but secret-shaped, so redaction tests can assert it never leaks.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, string>
+ */
+function cloudflarePayload(array $overrides = []): array
+{
+    return [
+        'api_token' => 'CF00000000000000000000000000000000000000',
+        ...$overrides,
+    ];
+}
+
+/**
+ * Load one synthetic fixture from tests/Fixtures/Cloudflare.
+ */
+function cloudflareFixture(string $path): mixed
+{
+    $contents = file_get_contents(cloudflareFixtureDir().'/'.$path);
+
+    return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Absolute path of the synthetic Cloudflare fixture directory.
+ */
+function cloudflareFixtureDir(): string
+{
+    return __DIR__.'/Fixtures/Cloudflare';
+}

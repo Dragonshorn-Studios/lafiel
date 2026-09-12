@@ -1,0 +1,18 @@
+{
+    "success": true,
+    "errors": [],
+    "messages": [],
+    "result": [
+        {
+            "id": "account-synthetic-01",
+            "name": "Synthetic Account"
+        }
+    ],
+    "result_info": {
+        "page": 1,
+        "per_page": 50,
+        "count": 1,
+        "total_pages": 1,
+        "total_count": 1
+    }
+}

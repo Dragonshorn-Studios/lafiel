@@ -14,7 +14,7 @@
 - Use one `SyncRun` per account, per-account locking, bounded backoff, and sanitized logs.
 - Credentials are encrypted and redacted from all output and fixtures.
 
-Canonical categories: `compute`, `storage`, `network`, `domain`, `dns`, `database`, `observability`, `security`, `email`, `saas`, `other`.
+Canonical categories: `account`, `compute`, `storage`, `network`, `domain`, `dns`, `database`, `observability`, `security`, `email`, `saas`, `other`.
 
 ## Evidence and completeness
 
@@ -82,6 +82,16 @@ Requirements:
 - distinguish free-plan zero from an unknown missing cost field.
 
 References: [Cloudflare account usage API](https://developers.cloudflare.com/api/resources/billing/subresources/usage/methods/get_account_usage_v2/) and [billable usage](https://developers.cloudflare.com/billing/manage/billable-usage/).
+
+Implementation (adapter `cloudflare`, issue #15):
+
+- one API token, created out-of-band with Billing Read (account subscriptions) and Zone Read (zone discovery and zone subscriptions); the read-only client can only express GET;
+- the account itself is inventoried as a service (canonical category `account`), so account-level subscriptions have a charge anchor; zones inventory as `dns`;
+- account and zone subscription listings are deduplicated by subscription id — one charge is never counted twice; the fixed components of one subscription sum into one recurring fact, metered components contribute nothing;
+- a fixed subscription price is `actual` evidence (the provider's committed price, unlike a catalog quote); price `0` on a free plan is a known zero; a missing price component or currency is unknown, never inferred;
+- the Usage capability is declared and reported `partial`, so every Cloudflare run reads partial and the Overview data-quality card reports the account's metered usage as unavailable;
+- the batch's reported capabilities are `[subscriptions]` only: a cancelled subscription ends its charge on a complete run even though usage stays permanently partial;
+- the subscription payload shape is a documented assumption (`tests/Fixtures/Cloudflare/README.md`) pending the real-account spike.
 
 ## Contabo — later
 

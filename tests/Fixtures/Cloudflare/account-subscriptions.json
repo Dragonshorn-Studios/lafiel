@@ -1,0 +1,61 @@
+{
+    "success": true,
+    "errors": [],
+    "messages": [],
+    "result": [
+        {
+            "id": "sub-workers-synthetic-01",
+            "product": {
+                "id": "workers_paid",
+                "name": "Workers Paid"
+            },
+            "rate_plan": {
+                "id": "plan-workers-synthetic",
+                "public_name": "Workers Paid",
+                "currency": "USD",
+                "components": [
+                    {
+                        "name": "Workers Paid",
+                        "price": "5.00"
+                    },
+                    {
+                        "name": "Requests",
+                        "metered": true
+                    }
+                ]
+            },
+            "frequency": "monthly",
+            "state": "Paid",
+            "current_period": {
+                "start": "2026-09-01T00:00:00Z",
+                "end": "2026-10-01T00:00:00Z"
+            },
+            "auto_renew": true
+        },
+        {
+            "id": "sub-unknown-price-synthetic-02",
+            "product": {
+                "id": "load_balancing",
+                "name": "Load Balancing"
+            },
+            "rate_plan": {
+                "id": "plan-lb-synthetic",
+                "public_name": "Load Balancing"
+            },
+            "frequency": "monthly",
+            "state": "Paid",
+            "current_period": {
+                "start": "2026-09-01T00:00:00Z",
+                "end": "2026-10-01T00:00:00Z"
+            },
+            "auto_renew": false
+        }
+    ],
+    "result_info": {
+        "page": 1,
+        "per_page": 50,
+        "count": 2,
+        "total_pages": 1,
+        "total_count": 2
+    }
+}

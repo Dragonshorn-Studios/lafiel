@@ -11,7 +11,7 @@ use App\Domain\Providers\Models\ProviderCredential;
  * fingerprint uses the same scheme as the sync orchestrator, so a
  * later sync skips re-validation unless the payload changed.
  */
-class VerifyOvhCredentials
+class VerifyCredentials
 {
     public function verify(ProviderAccount $account, ProviderCredential $credential): void
     {

@@ -5,6 +5,10 @@ namespace App\Providers;
 use App\Domain\Ops\Commands\HeartbeatCommand;
 use App\Domain\Ops\Commands\OpsCommand;
 use App\Domain\Providers\AdapterRegistry;
+use App\Domain\Providers\Cloudflare\CloudflareCredentialSchema;
+use App\Domain\Providers\Cloudflare\CloudflareProviderAdapter;
+use App\Domain\Providers\CredentialSchemas;
+use App\Domain\Providers\Ovh\OvhCredentialSchema;
 use App\Domain\Providers\Ovh\OvhProviderAdapter;
 use App\Listeners\EnsureOpsHealthy;
 use App\Listeners\VerifyDatabaseHealth;
@@ -24,7 +28,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(AdapterRegistry::class);
+        $this->app->singleton(CredentialSchemas::class);
         $this->app->singleton(OvhProviderAdapter::class);
+        $this->app->singleton(CloudflareProviderAdapter::class);
     }
 
     /**
@@ -34,8 +40,13 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
 
-        $this->app->make(AdapterRegistry::class)
-            ->register('ovh', $this->app->make(OvhProviderAdapter::class));
+        $adapters = $this->app->make(AdapterRegistry::class);
+        $adapters->register('ovh', $this->app->make(OvhProviderAdapter::class));
+        $adapters->register('cloudflare', $this->app->make(CloudflareProviderAdapter::class));
+
+        $schemas = $this->app->make(CredentialSchemas::class);
+        $schemas->register('ovh', OvhCredentialSchema::class);
+        $schemas->register('cloudflare', CloudflareCredentialSchema::class);
 
         Event::listen(DiagnosingHealth::class, VerifyDatabaseHealth::class);
         Event::listen(DiagnosingHealth::class, EnsureOpsHealthy::class);

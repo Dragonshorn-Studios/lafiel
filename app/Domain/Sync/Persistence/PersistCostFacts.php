@@ -78,6 +78,11 @@ final class PersistCostFacts
             $open->tax_basis = $fact->taxBasis;
             $open->allocation_state = $fact->allocationState;
             $open->observed_at = $batch->observedAt;
+            // Descriptive text follows its fact when present; the
+            // absence of a note is not the news that it is gone.
+            if ($fact->notes !== null) {
+                $open->notes = $fact->notes;
+            }
             if ($open->isDirty()) {
                 $open->save();
                 $updated++;
@@ -128,6 +133,7 @@ final class PersistCostFacts
             'allocation_state' => $fact->allocationState,
             'valid_from' => $fact->validFrom,
             'observed_at' => $batch->observedAt,
+            'notes' => $fact->notes,
         ]);
     }
 

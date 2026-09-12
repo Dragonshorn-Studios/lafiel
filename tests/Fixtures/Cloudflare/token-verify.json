@@ -1,0 +1,9 @@
+{
+    "success": true,
+    "errors": [],
+    "messages": [],
+    "result": {
+        "id": "token-synthetic-01",
+        "status": "active"
+    }
+}

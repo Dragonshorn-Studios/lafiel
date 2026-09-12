@@ -1,29 +1,33 @@
 <?php
 
-use App\Domain\Providers\Actions\ConnectOvhAccount;
+use App\Domain\Providers\Actions\ConnectProviderAccount;
 use App\Domain\Providers\Actions\DeleteProviderAccount;
 use App\Domain\Providers\Actions\SetProviderAccountEnabled;
-use App\Domain\Providers\Actions\UpdateOvhCredentials;
-use App\Domain\Providers\Actions\VerifyOvhCredentials;
+use App\Domain\Providers\Actions\TestProviderConnection;
+use App\Domain\Providers\Actions\UpdateProviderCredentials;
+use App\Domain\Providers\Actions\VerifyCredentials;
+use App\Domain\Providers\CredentialSchemas;
 use App\Domain\Providers\Enums\ConnectionStatus;
 use App\Domain\Providers\Models\ProviderAccount;
-use App\Domain\Providers\Ovh\BuildOvhApi;
-use App\Domain\Providers\Ovh\OvhCredentialSchema;
-use App\Domain\Providers\Ovh\TestOvhConnection;
 use App\Domain\Sync\Actions\RequestSync;
 use Flux\Flux;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Providers')] class extends Component {
+    public string $providerKey = 'ovh';
     public string $displayName = '';
-    public string $endpoint = 'ovh-eu';
-    public string $applicationKey = '';
-    public string $applicationSecret = '';
-    public string $consumerKey = '';
+
+    /**
+     * Credential fields keyed by the schema's snake_case payload names;
+     * the schema decides which fields exist for the selected provider.
+     *
+     * @var array<string, string>
+     */
+    public array $credential = [];
 
     public ?int $editingAccountId = null;
 
@@ -50,6 +54,27 @@ new #[Title('Providers')] class extends Component {
      */
     public array $connectionChecks = [];
 
+    #[Computed]
+    public function schemas(): CredentialSchemas
+    {
+        return app(CredentialSchemas::class);
+    }
+
+    /**
+     * The credential schema behind the panel's selected provider.
+     */
+    #[Computed]
+    public function activeSchema(): string
+    {
+        return $this->schemas->for($this->providerKey);
+    }
+
+    public function updatedProviderKey(): void
+    {
+        $this->resetCredentialFields();
+        $this->resetValidation();
+    }
+
     public function add(): void
     {
         $this->resetForm();
@@ -59,17 +84,28 @@ new #[Title('Providers')] class extends Component {
     public function edit(int $accountId): void
     {
         $account = $this->account($accountId);
+        $credential = $account->credentials()->latest('id')->first();
 
         $this->editingAccountId = $account->id;
+        $this->providerKey = $account->provider_key;
         $this->displayName = $account->display_name;
-        try {
-            $this->endpoint = $account->credentials()->latest('id')->first()?->payload['endpoint'] ?? 'ovh-eu';
-        } catch (DecryptException) {
-            $this->endpoint = 'ovh-eu';
+        $this->resetCredentialFields();
+
+        // Non-secret values are shown back; secrets are entered fresh.
+        if ($credential !== null) {
+            try {
+                $payload = $credential->payload;
+            } catch (DecryptException) {
+                $payload = [];
+            }
+
+            foreach ($this->activeSchema::fields() as $field) {
+                if ($field->type !== 'password' && isset($payload[$field->name])) {
+                    $this->credential[$field->name] = (string) $payload[$field->name];
+                }
+            }
         }
-        $this->applicationKey = '';
-        $this->applicationSecret = '';
-        $this->consumerKey = '';
+
         $this->resetValidation();
         $this->panelOpen = true;
     }
@@ -78,11 +114,11 @@ new #[Title('Providers')] class extends Component {
     {
         $validated = $this->validate($this->formRules());
 
-        app(ConnectOvhAccount::class)->connect($this->actionInput($validated));
+        app(ConnectProviderAccount::class)->connect($this->providerKey, $this->actionInput($validated));
 
         $this->closePanel();
 
-        Flux::toast(variant: 'success', text: __('OVH account connected. Run a connection test to verify the credentials.'));
+        Flux::toast(variant: 'success', text: __('Provider connected. Run a connection test to verify the credentials.'));
     }
 
     public function update(): void
@@ -91,7 +127,7 @@ new #[Title('Providers')] class extends Component {
 
         $validated = $this->validate($this->formRules());
 
-        app(UpdateOvhCredentials::class)->update($account, $this->actionInput($validated));
+        app(UpdateProviderCredentials::class)->update($account, $this->actionInput($validated));
 
         $this->closePanel();
 
@@ -104,8 +140,9 @@ new #[Title('Providers')] class extends Component {
     }
 
     /**
-     * Probe the account's stored credentials against OVH. A rejection is
-     * a distinct state and never retried; existing history is unchanged.
+     * Probe the account's stored credentials against its provider. A
+     * rejection is a distinct state and never retried; existing
+     * history is unchanged.
      */
     public function testConnection(int $accountId): void
     {
@@ -118,24 +155,15 @@ new #[Title('Providers')] class extends Component {
             return;
         }
 
-try {
-            $api = app(BuildOvhApi::class)->build($credential->payload);
-            $check = app(TestOvhConnection::class)->check($api);
-        } catch (InvalidCredentialsException $exception) {
-            $check = ConnectionCheck::rejected($exception->getMessage());
-        } catch (DecryptException) {
-            // A rotated APP_KEY makes the stored payload unreadable; it
-            // is the same human-fixable condition as a rejected probe.
-            $check = ConnectionCheck::rejected(__('Stored credentials are unreadable. Replace them and test again.'));
-        }
+        $check = app(TestProviderConnection::class)->check($account, $credential);
 
         if ($check->status === ConnectionStatus::Connected) {
-            app(VerifyOvhCredentials::class)->verify($account, $credential);
+            app(VerifyCredentials::class)->verify($account, $credential);
         }
 
         $this->connectionChecks[$accountId] = [
             'status' => $check->status->value,
-            'message' => $check->warning ?? __('The OVH account accepted the credentials.'),
+            'message' => $check->warning ?? __('The provider accepted the credentials.'),
         ];
 
         Flux::toast(variant: match ($check->status) {
@@ -143,9 +171,9 @@ try {
             ConnectionStatus::Rejected => 'danger',
             ConnectionStatus::Unreachable => 'warning',
         }, text: match ($check->status) {
-            ConnectionStatus::Connected => __('OVH credentials verified.'),
-            ConnectionStatus::Rejected => __('OVH credentials were rejected. Existing history is unchanged.'),
-            ConnectionStatus::Unreachable => __('OVH could not be reached. Try again shortly.'),
+            ConnectionStatus::Connected => __('Credentials verified.'),
+            ConnectionStatus::Rejected => __('The credentials were rejected. Existing history is unchanged.'),
+            ConnectionStatus::Unreachable => __('The provider could not be reached. Try again shortly.'),
         });
     }
 
@@ -212,14 +240,43 @@ try {
             ->get();
     }
 
+    /**
+     * The stored payload's non-secret summary. A payload that no
+     * longer decrypts (rotated APP_KEY) reads as unreadable instead of
+     * crashing the page; replacing the credentials fixes it.
+     */
+    public function credentialSummary(ProviderAccount $account): string
+    {
+        $credential = $account->credentials->sortByDesc('id')->first();
+
+        if ($credential === null) {
+            return '—';
+        }
+
+        try {
+            return $this->schemas->for($account->provider_key)::summary($credential->payload);
+        } catch (DecryptException) {
+            return __('unreadable');
+        }
+    }
+
+    public function providerLabelFor(string $providerKey): string
+    {
+        try {
+            return $this->schemas->for($providerKey)::label();
+        } catch (\Throwable) {
+            return $providerKey;
+        }
+    }
+
     private function account(int $accountId): ProviderAccount
     {
         return ProviderAccount::query()->findOrFail($accountId);
     }
 
     /**
-     * The credential schema speaks snake_case; Livewire properties here
-     * are camelCase, so the rule keys are translated per property.
+     * The credential schema speaks snake_case payload keys nested under
+     * `credential.`; the page validates exactly what the action receives.
      *
      * @return array<string, list<string>>
      */
@@ -227,17 +284,14 @@ try {
     {
         $rules = ['displayName' => ['required', 'string', 'max:255']];
 
-        foreach (OvhCredentialSchema::rules() as $key => $cases) {
-            $rules[Str::camel($key)] = $cases;
+        foreach ($this->activeSchema::rules() as $key => $cases) {
+            $rules['credential.'.$key] = $cases;
         }
 
         return $rules;
     }
 
     /**
-     * The form speaks camelCase (Livewire properties), the domain
-     * actions speak snake_case (validation + payload keys).
-     *
      * @param  array<string, mixed>  $validated
      * @return array<string, mixed>
      */
@@ -245,35 +299,25 @@ try {
     {
         return [
             'display_name' => $validated['displayName'],
-            'endpoint' => $validated['endpoint'],
-            'application_key' => $validated['applicationKey'],
-            'application_secret' => $validated['applicationSecret'],
-            'consumer_key' => $validated['consumerKey'],
+            ...$validated['credential'],
         ];
     }
 
-    /**
-     * The stored endpoint for display. A payload that no longer
-     * decrypts (rotated APP_KEY) reads as unreadable instead of
-     * crashing the page; replacing the credentials fixes it.
-     */
-    public function endpointFor(\App\Domain\Providers\Models\ProviderCredential $credential): string
+    private function resetCredentialFields(): void
     {
-        try {
-            return $credential->payload['endpoint'] ?? '—';
-        } catch (DecryptException) {
-            return __('unreadable');
+        $this->credential = [];
+
+        foreach ($this->activeSchema::fields() as $field) {
+            $this->credential[$field->name] = '';
         }
     }
 
     private function resetForm(): void
     {
         $this->editingAccountId = null;
+        $this->providerKey = array_key_first($this->schemas->options()) ?? 'ovh';
         $this->displayName = '';
-        $this->endpoint = 'ovh-eu';
-        $this->applicationKey = '';
-        $this->applicationSecret = '';
-        $this->consumerKey = '';
+        $this->resetCredentialFields();
         $this->resetValidation();
     }
 
@@ -305,16 +349,15 @@ try {
     @else
         <div class="grid gap-4 xl:grid-cols-2">
             @foreach ($this->accounts as $account)
-                @php
-                    $credential = $account->credentials->sortByDesc('id')->first();
-                    $check = $connectionChecks[$account->id] ?? null;
-                @endphp
+                @php($check = $connectionChecks[$account->id] ?? null)
 
                 <flux:card data-test="provider-account">
                     <div class="flex flex-wrap items-center gap-2">
                         <flux:heading class="mr-auto">{{ $account->display_name }}</flux:heading>
 
-                        @if ($credential?->verified_at !== null)
+                        @php($verified = $account->credentials->sortByDesc('id')->first()?->verified_at !== null)
+
+                        @if ($verified)
                             <flux:badge variant="success" size="sm">{{ __('Verified') }}</flux:badge>
                         @else
                             <flux:badge variant="warning" size="sm">{{ __('Not verified') }}</flux:badge>
@@ -332,7 +375,7 @@ try {
                     </div>
 
                     <p class="mt-2 text-sm text-ink-secondary">
-                        {{ __('OVH · :endpoint', ['endpoint' => $credential !== null ? $this->endpointFor($credential) : '—']) }}
+                        {{ $this->providerLabelFor($account->provider_key) }} · {{ $this->credentialSummary($account) }}
                         @if ($account->last_success_at !== null)
                             · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
                         @endif
@@ -418,46 +461,71 @@ try {
         </div>
     @endif
 
-    <flux:card>
-        <flux:heading size="lg">{{ __('Read-only credentials') }}</flux:heading>
+    {{-- Least-privilege guidance, one card per registered provider. --}}
+    @foreach ($this->schemas->options() as $providerKey => $label)
+        @php($schema = $this->schemas->for($providerKey))
+        <flux:card>
+            <flux:heading size="lg">{{ __('Read-only :provider credentials', ['provider' => $label]) }}</flux:heading>
 
-        <p class="mt-2 text-sm text-ink-secondary">
-            {{ __('Create an OVHcloud API application, then delegate the smallest read-only rights: GET on /me for the connection test, and GET on the service endpoints the inventory integration documents. Lafiel never calls a mutating OVH endpoint — no create, renew, scale, or delete.') }}
-        </p>
+            <p class="mt-2 text-sm text-ink-secondary">
+                {{ __($schema::help()) }}
+            </p>
 
-        <p class="mt-2 text-sm text-ink-secondary">
-            <a href="https://help.ovhcloud.com/csm/de-api-api-rights-delegation?id=kb_article_view&sysparm_article=KB0068603" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to delegate OVH API rights') }}</a>
-        </p>
-    </flux:card>
+            @if ($schema::helpUrl() !== null)
+                <p class="mt-2 text-sm text-ink-secondary">
+                    <a href="{{ $schema::helpUrl() }}" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to create :provider credentials', ['provider' => $label]) }}</a>
+                </p>
+            @endif
+        </flux:card>
+    @endforeach
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
     <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
         <flux:heading size="lg" class="mb-2">
-            {{ $editingAccountId !== null ? __('Replace OVH credentials') : __('Connect OVHcloud') }}
+            @if ($editingAccountId !== null)
+                {{ __('Replace :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}
+            @else
+                {{ __('Connect :provider', ['provider' => $this->providerLabelFor($this->providerKey)]) }}
+            @endif
         </flux:heading>
 
         <p class="mb-6 text-sm text-ink-secondary">
-            {{ __('The only supported provider in this release. Read-only access — Lafiel never calls a mutating OVH endpoint.') }}
+            {{ __('Read-only access only — Lafiel never calls a mutating provider endpoint.') }}
         </p>
 
         <form wire:submit="{{ $editingAccountId === null ? 'connect' : 'update' }}" class="space-y-6">
-            <flux:input wire:model="displayName" :label="__('Display name')" required placeholder="OVH main account" />
+            @if ($editingAccountId === null)
+                <flux:select wire:model="providerKey" :label="__('Provider')" data-test="provider-select">
+                    @foreach ($this->schemas->options() as $key => $label)
+                        <flux:select.option :value="$key">{{ $label }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+            @endif
 
-            <flux:select wire:model="endpoint" :label="__('Endpoint')">
-                @foreach (OvhCredentialSchema::ENDPOINTS as $name)
-                    <flux:select.option :value="$name">{{ $name }}</flux:select.option>
-                @endforeach
-            </flux:select>
+            <flux:input wire:model="displayName" :label="__('Display name')" required placeholder="{{ __('Main account') }}" />
 
-            <flux:input wire:model="applicationKey" :label="__('Application key')" required autocomplete="off" />
-
-            <flux:input wire:model="applicationSecret" :label="__('Application secret')" type="password" required autocomplete="new-password" />
-
-            <flux:input wire:model="consumerKey" :label="__('Consumer key')" type="password" required autocomplete="new-password" />
+            @foreach ($this->activeSchema::fields() as $field)
+                @if ($field->type === 'select')
+                    <flux:select wire:model="credential.{{ $field->name }}" :label="__($field->label)">
+                        @foreach ($field->options as $option)
+                            <flux:select.option :value="$option">{{ $option }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                @else
+                    <flux:input
+                        wire:model="credential.{{ $field->name }}"
+                        :label="__($field->label)"
+                        :type="$field->type === 'password' ? 'password' : 'text'"
+                        required
+                        autocomplete="off"
+                        :placeholder="$field->placeholder !== null ? __($field->placeholder) : null"
+                    />
+                @endif
+            @endforeach
 
             @if ($editingAccountId !== null)
                 <p class="text-sm text-ink-muted">
-                    {{ __('Enter all three credentials again — stored secrets are never shown.') }}
+                    {{ __('Secret fields are never shown — enter them again to replace the stored values.') }}
                 </p>
             @endif
 

@@ -2,6 +2,8 @@
 
 namespace App\Domain\Providers\Ovh;
 
+use App\Domain\Providers\CredentialSchema;
+use App\Domain\Providers\Dtos\CredentialField;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +16,7 @@ use Illuminate\Validation\ValidationException;
  * are created out-of-band by the user); the whitelist keeps a typo
  * from pointing the account at a different OVH platform.
  */
-final class OvhCredentialSchema
+final class OvhCredentialSchema implements CredentialSchema
 {
     public const SCHEMA_VERSION = 1;
 
@@ -28,6 +30,39 @@ final class OvhCredentialSchema
         'soyoustart-eu',
         'soyoustart-ca',
     ];
+
+    public static function label(): string
+    {
+        return 'OVHcloud';
+    }
+
+    public static function help(): string
+    {
+        return 'Create an OVHcloud API application, then delegate the smallest read-only rights: GET on /me for the connection test, and GET on the service endpoints the inventory integration documents. Lafiel never calls a mutating OVH endpoint — no create, renew, scale, or delete.';
+    }
+
+    public static function helpUrl(): string
+    {
+        return 'https://help.ovhcloud.com/csm/de-api-api-rights-delegation?id=kb_article_view&sysparm_article=KB0068603';
+    }
+
+    public static function summary(array $payload): string
+    {
+        return (string) ($payload['endpoint'] ?? '—');
+    }
+
+    /**
+     * @return list<CredentialField>
+     */
+    public static function fields(): array
+    {
+        return [
+            new CredentialField('endpoint', 'Endpoint', CredentialField::TYPE_SELECT, options: self::ENDPOINTS),
+            new CredentialField('application_key', 'Application key'),
+            new CredentialField('application_secret', 'Application secret', CredentialField::TYPE_PASSWORD),
+            new CredentialField('consumer_key', 'Consumer key', CredentialField::TYPE_PASSWORD),
+        ];
+    }
 
     /**
      * Validation rules for the settings form. Secret fields are always

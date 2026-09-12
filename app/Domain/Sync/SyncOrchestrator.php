@@ -7,6 +7,7 @@ use App\Domain\Inventory\Lifecycle\ApplyInventoryLifecycle;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\CapabilityOutcome;
 use App\Domain\Providers\Dtos\CostFactBatch;
+use App\Domain\Providers\Dtos\InventoryBatch;
 use App\Domain\Providers\Dtos\SyncContext;
 use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Enums\ProviderCapability;
@@ -247,13 +248,7 @@ final class SyncOrchestrator
                 // service whose metadata fetch failed, and ending its
                 // charge would treat the absence as cancellation — the
                 // thing the lifecycle refuses to do.
-                $fullyComplete = $inventoryBatch->completeness === BatchCompleteness::Complete
-                    && $costBatch->completeness === BatchCompleteness::Complete
-                    && collect($costCapabilities)->every(
-                        fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
-                    );
-
-                if ($fullyComplete) {
+                if ($this->mayEndAbsentCharges($inventoryBatch, $costBatch, $costCapabilities)) {
                     $costCounts['ended'] = $this->endAbsentCostFacts->end($account->provider_key, $account->id, $costBatch);
                 }
             }
@@ -285,6 +280,37 @@ final class SyncOrchestrator
         }
 
         return $this->finish($run, $status, $counts, $warnings, $redactor);
+    }
+
+    /**
+     * Absence is cancellation evidence only for capabilities this
+     * batch actually represents, observed completely: a complete
+     * subscription observation is positive evidence about
+     * subscriptions even while the same run's usage capability sits at
+     * partial — usage is not what this batch reported, so its
+     * partiality cannot undercut the subscriptions' evidence. A batch
+     * that names no reported capabilities keeps the conservative
+     * legacy rule: every declared cost capability must be complete.
+     *
+     * @param  list<ProviderCapability>  $costCapabilities
+     */
+    private function mayEndAbsentCharges(InventoryBatch $inventoryBatch, CostFactBatch $costBatch, array $costCapabilities): bool
+    {
+        if ($inventoryBatch->completeness !== BatchCompleteness::Complete
+            || $costBatch->completeness !== BatchCompleteness::Complete
+        ) {
+            return false;
+        }
+
+        if ($costBatch->reportedCapabilities === []) {
+            return collect($costCapabilities)->every(
+                fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
+            );
+        }
+
+        return collect($costBatch->reportedCapabilities)->every(
+            fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
+        );
     }
 
     /**

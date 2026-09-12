@@ -116,7 +116,7 @@ function costFact(string $sourceRef, array $covers, ?Money $amount = null, ?Carb
     );
 }
 
-function costBatch(array $facts = [], BatchCompleteness $completeness = BatchCompleteness::Complete, ?CarbonImmutable $observedAt = null, array $capabilityCompleteness = [], array $warnings = []): CostFactBatch
+function costBatch(array $facts = [], BatchCompleteness $completeness = BatchCompleteness::Complete, ?CarbonImmutable $observedAt = null, array $capabilityCompleteness = [], array $warnings = [], array $reportedCapabilities = []): CostFactBatch
 {
     return new CostFactBatch(
         $completeness,
@@ -125,6 +125,7 @@ function costBatch(array $facts = [], BatchCompleteness $completeness = BatchCom
         $facts,
         $warnings,
         $capabilityCompleteness,
+        $reportedCapabilities,
     );
 }
 
@@ -890,6 +891,111 @@ it('creates a new version when an ended charge reappears', function () {
     // The middle run recorded the ending.
     $middle = SyncRun::query()->orderBy('id')->get()->get(1);
     expect($middle->counts['cost_facts']['ended'])->toBe(1);
+});
+
+it('ends charges on a complete reporting capability even while another declared capability stays partial without facts', function () {
+    $fact = new CostFact(
+        sourceRef: 'srv-1-monthly',
+        serviceExternalIds: ['srv-1'],
+        sourceKind: SourceKind::Subscription,
+        chargeKind: ChargeKind::RecurringFixed,
+        period: Period::Monthly,
+        evidenceState: EvidenceState::Quote,
+        amount: Money::ofMinor(1050, 'PLN'),
+        validFrom: (new CarbonImmutable)->startOfDay(),
+        renewsAt: (new CarbonImmutable)->addDays(30),
+        autoRenew: true,
+    );
+    $adapter = new FakeProviderAdapter(
+        capabilitySet: new CapabilitySet([
+            ProviderCapability::Inventory,
+            ProviderCapability::Subscriptions,
+            ProviderCapability::Usage,
+        ]),
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([$fact], capabilityCompleteness: [
+            ProviderCapability::Subscriptions->value => BatchCompleteness::Complete,
+            ProviderCapability::Usage->value => BatchCompleteness::Partial,
+        ], reportedCapabilities: [ProviderCapability::Subscriptions]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    // Usage is permanently partial and reports no facts at all; the
+    // complete subscription observation still proves the charge ended.
+    $adapter->costFactBatch = costBatch([], capabilityCompleteness: [
+        ProviderCapability::Subscriptions->value => BatchCompleteness::Complete,
+        ProviderCapability::Usage->value => BatchCompleteness::Partial,
+    ], reportedCapabilities: [ProviderCapability::Subscriptions]);
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Partial)
+        ->and($run->counts['cost_facts']['ended'])->toBe(1)
+        ->and(CostItem::query()->whereNull('valid_to')->count())->toBe(0);
+});
+
+it('ends nothing while the capability that reported facts is itself partial', function () {
+    $fact = new CostFact(
+        sourceRef: 'srv-1-monthly',
+        serviceExternalIds: ['srv-1'],
+        sourceKind: SourceKind::Subscription,
+        chargeKind: ChargeKind::RecurringFixed,
+        period: Period::Monthly,
+        evidenceState: EvidenceState::Quote,
+        amount: Money::ofMinor(1050, 'PLN'),
+        validFrom: (new CarbonImmutable)->startOfDay(),
+    );
+    $adapter = new FakeProviderAdapter(
+        capabilitySet: new CapabilitySet([
+            ProviderCapability::Inventory,
+            ProviderCapability::Subscriptions,
+        ]),
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1'), inventoryItem('srv-2', 'storage')]),
+        costFactBatch: costBatch([$fact], capabilityCompleteness: [
+            ProviderCapability::Subscriptions->value => BatchCompleteness::Partial,
+        ], reportedCapabilities: [ProviderCapability::Subscriptions]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    // A partial subscription observation no longer reports the charge —
+    // but its absence is not cancellation evidence.
+    $adapter->costFactBatch = costBatch([], capabilityCompleteness: [
+        ProviderCapability::Subscriptions->value => BatchCompleteness::Partial,
+    ], reportedCapabilities: [ProviderCapability::Subscriptions]);
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->counts['cost_facts'])->not->toHaveKey('ended')
+        ->and(CostItem::query()->whereNull('valid_to')->count())->toBe(1);
+});
+
+it('keeps the conservative ending rule for batches with untagged facts', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch(
+            [costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))],
+            capabilityCompleteness: [ProviderCapability::RenewalQuotes->value => BatchCompleteness::Partial],
+        ),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    $adapter->costFactBatch = costBatch(
+        [],
+        capabilityCompleteness: [ProviderCapability::RenewalQuotes->value => BatchCompleteness::Partial],
+    );
+    $run = runSync($account, $adapter)->fresh();
+
+    // Untagged facts cannot be attributed to a capability, so every
+    // declared cost capability must be complete before anything ends.
+    expect($run->counts['cost_facts'])->not->toHaveKey('ended')
+        ->and(CostItem::query()->whereNull('valid_to')->count())->toBe(1);
 });
 
 // ---------------------------------------------------------------------------
