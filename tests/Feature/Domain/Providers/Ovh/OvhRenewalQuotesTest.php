@@ -25,9 +25,14 @@ use Carbon\CarbonImmutable;
 use Tests\Fakes\FakeOvhApi;
 
 beforeEach(function () {
-    $this->freezeTime();
+    CarbonImmutable::setTestNow('2026-09-10 12:00:00');
+
     $this->app->forgetInstance(AdapterRegistry::class);
     $this->app->forgetInstance(OvhProviderAdapter::class);
+});
+
+afterEach(function () {
+    CarbonImmutable::setTestNow();
 });
 
 // ---------------------------------------------------------------------------
@@ -348,5 +353,5 @@ it('ends a renewal charge absent from a later complete run', function () {
 
     expect($second->refresh()->status)->toBe(SyncStatus::Succeeded)
         ->and($second->counts['cost_facts']['ended'])->toBe(1)
-        ->and($ipCharge->refresh()->valid_to?->toDateString())->toBe('2026-09-11');
+        ->and($ipCharge->refresh()->valid_to?->toDateString())->toBe('2026-09-10');
 });

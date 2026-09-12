@@ -4,6 +4,7 @@ namespace App\Domain\Providers\Models;
 
 use Carbon\CarbonImmutable;
 use Database\Factories\Domain\Providers\Models\ProviderCredentialFactory;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -51,5 +52,21 @@ class ProviderCredential extends Model
     public function providerAccount(): BelongsTo
     {
         return $this->belongsTo(ProviderAccount::class);
+    }
+
+    /**
+     * The decrypted payload. Exists as a method so callers can declare
+     * the decrypt failure mode — reading the attribute directly hides
+     * it from both static analysis and intent.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws DecryptException when
+     *                          the APP_KEY cannot
+     *                          decrypt this payload
+     */
+    public function readablePayload(): array
+    {
+        return $this->payload;
     }
 }

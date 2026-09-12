@@ -18,6 +18,8 @@ final class HeartbeatJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
+    public int $tries = 1;
+
     public function handle(): void
     {
         cache()->put(Ops::QUEUE_HEARTBEAT, now()->toIso8601String());

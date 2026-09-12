@@ -7,16 +7,15 @@ namespace App\Domain\Ops;
  * the queue each write a heartbeat on their own side of the pipeline:
  * the scheduler writes directly from its process, the queue writes
  * from inside an executed job. A heartbeat's age is the liveness
- * signal — missing only counts as dead once the install marker says
- * the pipeline should have been running.
+ * signal — missing only counts as dead once the first administrator
+ * exists (OpsHealth anchors on that durable user record), so cache
+ * flushes and upgraded installs cannot leave the checks disarmed.
  */
 final class Ops
 {
     public const SCHEDULER_HEARTBEAT = 'ops:scheduler-heartbeat';
 
     public const QUEUE_HEARTBEAT = 'ops:queue-heartbeat';
-
-    public const INSTALLED_AT = 'ops:installed-at';
 
     /** A heartbeat older than this many minutes reads as dead. */
     public const STALE_AFTER_MINUTES = 5;

@@ -52,6 +52,8 @@ final class SyncNowCommand extends Command
             return self::SUCCESS;
         }
 
+        $couldNotQueue = 0;
+
         foreach ($accounts as $account) {
             $run = $requestSync->request($account, $trigger);
 
@@ -61,9 +63,19 @@ final class SyncNowCommand extends Command
                 continue;
             }
 
+            // A dispatch failure is not "skipped": say so and fail the
+            // command so exit-code-based monitoring sees it.
+            if ($run->status->value === 'failed') {
+                $couldNotQueue++;
+                $warning = $run->summary['warnings'][0] ?? 'could not queue the sync job';
+                $this->error(" [{$account->id}] {$account->display_name}: {$warning}");
+
+                continue;
+            }
+
             $this->info(" [{$account->id}] {$account->display_name}: sync queued (run #{$run->id}).");
         }
 
-        return self::SUCCESS;
+        return $couldNotQueue > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

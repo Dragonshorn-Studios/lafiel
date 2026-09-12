@@ -19,7 +19,7 @@ class EnsureOpsHealthy
         $failures = app(OpsHealth::class)->criticalFailures();
 
         if ($failures !== []) {
-            $names = implode(', ', array_map(fn ($failure) => $failure->check, $failures));
+            $names = implode(', ', array_map(fn ($failure) => $failure->name.' ('.$failure->detail.')', $failures));
 
             throw new \RuntimeException("Pipeline check failed: {$names}.");
         }

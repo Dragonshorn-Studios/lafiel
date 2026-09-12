@@ -4,28 +4,21 @@ namespace App\Domain\Ops;
 
 use App\Domain\History\Models\CostSnapshot;
 use App\Domain\Providers\Models\ProviderCredential;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Pipeline liveness checks for the health endpoint and `lafiel:ops`.
- * Every check returns a row with `critical` deciding whether it fails
- * the endpoint and the command's exit code; non-critical rows surface
- * degradation (snapshot age) without turning the app red.
+ * Every check is total: it returns an OpsCheck row even when its
+ * backend is broken, so the matrix always prints and /up always has a
+ * verdict. Critical failures mean the pipeline is broken; the
+ * snapshot-age check surfaces degradation without turning the app red.
  */
-final readonly class OpsCheck
-{
-    public function __construct(
-        public string $check,
-        public bool $ok,
-        public bool $critical,
-        public string $detail,
-    ) {}
-}
-
-final class OpsHealth
+final readonly class OpsHealth
 {
     /**
      * @return list<OpsCheck>
@@ -33,23 +26,39 @@ final class OpsHealth
     public function checks(): array
     {
         return [
-            $this->database(),
-            $this->heartbeat(Ops::SCHEDULER_HEARTBEAT, 'scheduler'),
-            $this->heartbeat(Ops::QUEUE_HEARTBEAT, 'queue'),
-            $this->credentials(),
-            $this->snapshots(),
+            $this->guard('database', fn (): OpsCheck => $this->database()),
+            $this->guard('scheduler', fn (): OpsCheck => $this->heartbeat(Ops::SCHEDULER_HEARTBEAT, 'scheduler')),
+            $this->guard('queue', fn (): OpsCheck => $this->heartbeat(Ops::QUEUE_HEARTBEAT, 'queue')),
+            $this->guard('credentials', fn (): OpsCheck => $this->credentials()),
+            $this->guard('snapshots', fn (): OpsCheck => $this->snapshots()),
         ];
     }
 
     /**
-     * True when any critical check fails — the "the app is broken" set.
+     * The critical checks that are currently failing — empty means the
+     * pipeline is healthy. Each row carries its name and detail.
+     *
+     * @return list<OpsCheck>
      */
     public function criticalFailures(): array
     {
         return array_values(array_filter(
             $this->checks(),
-            fn (OpsCheck $check): bool => $check->critical && ! $check->ok,
+            fn (OpsCheck $check): bool => $check->isFailure(),
         ));
+    }
+
+    /**
+     * A broken backend must yield a failed row, never an exception:
+     * checks() is total by construction.
+     */
+    private function guard(string $name, callable $check): OpsCheck
+    {
+        try {
+            return $check();
+        } catch (Throwable $exception) {
+            return OpsCheck::fail($name, 'check failed: '.$exception->getMessage());
+        }
     }
 
     private function database(): OpsCheck
@@ -57,90 +66,89 @@ final class OpsHealth
         try {
             DB::select('select 1');
 
-            return new OpsCheck('database', true, true, 'reachable');
-        } catch (\Throwable $exception) {
-            return new OpsCheck('database', false, true, $exception->getMessage());
+            return OpsCheck::pass('database', 'reachable');
+        } catch (Throwable $exception) {
+            return OpsCheck::fail('database', 'unreachable: '.$exception->getMessage());
         }
     }
 
     /**
      * A heartbeat that never appeared counts as dead only after the
-     * install grace window: a fresh install has no pipeline to lose.
+     * install grace window: the anchor is the first administrator's
+     * creation — durable state that survives cache flushes and arms
+     * upgraded installs too. A beat older than the staleness threshold
+     * means the process is dead.
      */
     private function heartbeat(string $key, string $label): OpsCheck
     {
         $beat = Cache::get($key);
 
         if ($beat === null) {
-            $graced = $this->withinInstallGrace();
-
-            return new OpsCheck(
-                $label,
-                $graced,
-                true,
-                $graced ? 'no heartbeat yet (fresh install)' : 'no heartbeat ever recorded',
-            );
+            return $this->withinInstallGrace()
+                ? OpsCheck::pass($label, 'no heartbeat yet (fresh install)', critical: true)
+                : OpsCheck::fail($label, 'no heartbeat ever recorded');
         }
 
-        $age = $this->ageMinutes($beat);
+        $ageMinutes = $this->ageMinutes($beat);
 
-        return new OpsCheck(
-            $label,
-            $age <= Ops::STALE_AFTER_MINUTES,
-            true,
-            "last beat {$age} minute(s) ago",
-        );
+        if ($ageMinutes > Ops::STALE_AFTER_MINUTES) {
+            return OpsCheck::fail($label, 'last beat '.round($ageMinutes).' minute(s) ago');
+        }
+
+        return OpsCheck::pass($label, 'last beat '.round($ageMinutes).' minute(s) ago');
     }
 
     /**
      * Stored provider credentials must still decrypt with the current
-     * APP_KEY: a rotated key makes them unreadable, and that has to be
-     * loud rather than a failure on the next sync.
+     * APP_KEY: a rotated or missing key makes them unreadable, and
+     * that has to be loud rather than a failure on the next sync.
      */
     private function credentials(): OpsCheck
     {
         $credentials = ProviderCredential::query()->get(['id', 'payload']);
 
         if ($credentials->isEmpty()) {
-            return new OpsCheck('credentials', true, true, 'none stored');
+            return OpsCheck::pass('credentials', 'none stored');
         }
 
         foreach ($credentials as $credential) {
             try {
-                $credential->payload;
-            } catch (DecryptException) {
-                return new OpsCheck('credentials', false, true, "credential #{$credential->id} is unreadable with the current APP_KEY");
+                $decrypted = $credential->readablePayload();
+            } catch (DecryptException $exception) {
+                return OpsCheck::fail('credentials', "credential #{$credential->id} cannot be read: ".$exception->getMessage());
             }
+
         }
 
-        return new OpsCheck('credentials', true, true, "{$credentials->count()} readable");
+        return OpsCheck::pass('credentials', "{$credentials->count()} readable");
     }
 
     /**
-     * Warning-level: a snapshot lagging more than two days (or missing
-     * while costs exist) means the daily capture pipeline is not
-     * running. Never critical — snapshots are historical output.
+     * Warning-level: a snapshot lagging more than two days means the
+     * daily capture pipeline is not running. Never critical —
+     * snapshots are historical output, and a fresh install has none.
+     * A future-dated snapshot is clock skew and reads as fresh.
      */
     private function snapshots(): OpsCheck
     {
         $latest = CostSnapshot::query()->max('snapshot_date');
 
         if ($latest === null) {
-            return new OpsCheck('snapshots', true, false, 'none captured yet');
+            return OpsCheck::pass('snapshots', 'none captured yet', critical: false);
         }
 
         $ageDays = CarbonImmutable::parse($latest)->startOfDay()->diffInDays(now()->startOfDay());
 
-        if (abs((int) $ageDays) > 2) {
-            return new OpsCheck('snapshots', false, false, "latest snapshot is from {$latest}");
+        if ($ageDays > 2.0) {
+            return OpsCheck::fail('snapshots', "latest snapshot is from {$latest}", critical: false);
         }
 
-        return new OpsCheck('snapshots', true, false, "latest snapshot {$latest}");
+        return OpsCheck::pass('snapshots', "latest snapshot {$latest}", critical: false);
     }
 
     private function withinInstallGrace(): bool
     {
-        $installedAt = Cache::get(Ops::INSTALLED_AT);
+        $installedAt = $this->installedAt();
 
         if ($installedAt === null) {
             return true;
@@ -149,8 +157,25 @@ final class OpsHealth
         return $this->ageMinutes($installedAt) <= Ops::INSTALL_GRACE_MINUTES;
     }
 
-    private function ageMinutes(string $timestamp): int
+    /**
+     * The app counts as installed once the first administrator exists —
+     * durable state that survives cache flushes and arms upgraded
+     * installs too. Null means setup has not happened yet.
+     */
+    private function installedAt(): ?CarbonImmutable
     {
-        return (int) abs(CarbonImmutable::parse($timestamp)->diffInMinutes(now()));
+        $oldest = User::query()->min('created_at');
+
+        return $oldest === null ? null : CarbonImmutable::parse($oldest);
+    }
+
+    /**
+     * Minutes since the timestamp, clamped at zero (a future timestamp
+     * is clock skew and reads as alive, not stale). Float on purpose:
+     * truncation would widen every documented threshold by a minute.
+     */
+    private function ageMinutes(string $timestamp): float
+    {
+        return max(0, CarbonImmutable::parse($timestamp)->diffInMinutes(now()));
     }
 }

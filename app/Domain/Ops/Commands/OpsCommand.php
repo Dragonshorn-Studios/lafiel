@@ -9,24 +9,26 @@ final class OpsCommand extends Command
 {
     protected $signature = 'lafiel:ops';
 
-    protected $description = 'Run the pipeline health checks (scheduler, queue, credentials, snapshots)';
+    protected $description = 'Run the pipeline health checks (database, scheduler, queue, credentials, snapshots)';
 
     public function handle(OpsHealth $health): int
     {
         $failed = false;
 
-        $rows = array_map(function ($check) use (&$failed): array {
-            if ($check->critical && ! $check->ok) {
+        $rows = [];
+
+        foreach ($health->checks() as $check) {
+            if ($check->isFailure()) {
                 $failed = true;
             }
 
-            return [
-                $check->check,
+            $rows[] = [
+                $check->name,
                 $check->ok ? 'ok' : 'FAIL',
                 $check->critical ? 'critical' : 'warning',
                 $check->detail,
             ];
-        }, $health->checks());
+        }
 
         $this->table(['Check', 'Status', 'Severity', 'Detail'], $rows);
 

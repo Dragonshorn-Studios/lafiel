@@ -178,6 +178,12 @@ try {
             return;
         }
 
+        if ($run->status->value === 'failed') {
+            Flux::toast(variant: 'danger', text: __('The sync could not be queued. Check the logs.'));
+
+            return;
+        }
+
         Flux::toast(variant: 'success', text: __('Sync queued.'));
     }
 

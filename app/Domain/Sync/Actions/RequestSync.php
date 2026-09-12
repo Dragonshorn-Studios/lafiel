@@ -9,6 +9,7 @@ use App\Domain\Sync\Models\SyncRun;
 use App\Domain\Sync\ReconcileStaleRuns;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -63,7 +64,12 @@ final class RequestSync
             $run->finished_at = now();
             $run->save();
 
-            return null;
+            Log::error('Could not queue sync job.', [
+                'sync_run_id' => $run->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return $run;
         }
 
         return $run;
