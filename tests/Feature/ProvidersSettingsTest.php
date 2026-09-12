@@ -379,3 +379,39 @@ it('connects a hetzner cloud account through the provider select', function () {
     expect($account->display_name)->toBe('HC project')
         ->and($account->credentials()->latest('id')->first()->payload)->toBe(hetznerCloudPayload());
 });
+
+it('swaps the credential fields and the least-privilege notes with the selected provider', function () {
+    providersPage()
+        ->call('add')
+        ->assertSee(__('Connect :provider', ['provider' => 'Cloudflare']))
+        // Cloudflare is the label-default: a single token field.
+        ->assertSee(__('API token'))
+        ->assertDontSee(__('Application key'))
+        ->assertSee(__('Read-only :provider credentials', ['provider' => 'Cloudflare']))
+        ->set('providerKey', 'ovh')
+        // OVH brings its own API credential fields.
+        ->assertSee(__('Connect :provider', ['provider' => 'OVHcloud']))
+        ->assertSee(__('Endpoint'))
+        ->assertSee(__('Application key'))
+        ->assertSee(__('Application secret'))
+        ->assertSee(__('Consumer key'))
+        ->assertDontSee(__('API token'))
+        ->assertSee(__('Read-only :provider credentials', ['provider' => 'OVHcloud']))
+        ->assertSee(__('How to create :provider credentials', ['provider' => 'OVHcloud']))
+        ->set('providerKey', 'contabo')
+        ->assertSee(__('Client ID'))
+        ->assertSee(__('Client secret'))
+        ->assertDontSee(__('Application key'))
+        ->assertSee(__('Read-only :provider credentials', ['provider' => 'Contabo']));
+});
+
+it('shows the selected provider help at the bottom of the edit slide-over', function () {
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'contabo']);
+
+    providersPage()
+        ->call('edit', $account->id)
+        ->assertSee(__('Replace :provider credentials', ['provider' => 'Contabo']))
+        ->assertSee(__('Read-only :provider credentials', ['provider' => 'Contabo']));
+});
