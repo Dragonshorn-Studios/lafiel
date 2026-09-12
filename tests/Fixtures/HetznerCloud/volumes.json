@@ -1,0 +1,20 @@
+{
+    "volumes": [
+        {
+            "id": 4600001,
+            "name": "data-synthetic-01",
+            "size": 42,
+            "location": {
+                "name": "fsn1"
+            }
+        }
+    ],
+    "meta": {
+        "pagination": {
+            "page": 1,
+            "per_page": 50,
+            "last_page": 1,
+            "total_entries": 1
+        }
+    }
+}

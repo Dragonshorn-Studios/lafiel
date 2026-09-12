@@ -1,0 +1,49 @@
+{
+    "servers": [
+        {
+            "id": 4200001,
+            "name": "web-synthetic-01",
+            "status": "running",
+            "server_type": {
+                "id": 1,
+                "name": "cx22"
+            },
+            "datacenter": {
+                "name": "fsn1-dc14",
+                "location": {
+                    "name": "fsn1"
+                }
+            },
+            "public_net": {
+                "ipv4": {
+                    "id": 4400001
+                }
+            }
+        },
+        {
+            "id": 4200002,
+            "name": "db-synthetic-02",
+            "status": "running",
+            "server_type": {
+                "id": 2,
+                "name": "cx32"
+            },
+            "datacenter": {
+                "name": "nbg1-dc3",
+                "location": {
+                    "name": "nbg1"
+                }
+            }
+        }
+    ],
+    "meta": {
+        "pagination": {
+            "page": 1,
+            "per_page": 50,
+            "previous_page": null,
+            "next_page": null,
+            "last_page": 1,
+            "total_entries": 2
+        }
+    }
+}

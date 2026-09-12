@@ -1,0 +1,23 @@
+{
+    "load_balancers": [
+        {
+            "id": 4300001,
+            "name": "lb-synthetic-01",
+            "load_balancer_type": {
+                "id": 1,
+                "name": "lb11"
+            },
+            "location": {
+                "name": "fsn1"
+            }
+        }
+    ],
+    "meta": {
+        "pagination": {
+            "page": 1,
+            "per_page": 50,
+            "last_page": 1,
+            "total_entries": 1
+        }
+    }
+}

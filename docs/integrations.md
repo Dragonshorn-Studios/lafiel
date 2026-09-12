@@ -114,7 +114,7 @@ Implementation (adapter `contabo`, issue #16):
 - a conscious override on every service a charge covers stops that unknown from counting toward the incompleteness totals (the charge itself remains as provenance); a partial package override keeps the unknown counted;
 - the real-account spike is still pending: it must confirm the payload shapes and probe for any account-specific billing surface before the manual-price assumption is hard-coded.
 
-## Hetzner — later
+## Hetzner — Cloud shipped, Robot pending
 
 Treat Hetzner Cloud and Robot as separate adapters with separate credentials and capabilities.
 
@@ -125,11 +125,23 @@ Treat Hetzner Cloud and Robot as separate adapters with separate credentials and
 - Catalog output is estimate with currency, VAT, and `observed_at`, not invoice actual.
 - A later catalog change must not silently rewrite historical conditions.
 
-### Robot
+### Robot — pending real-account spike
 
 - Identify dedicated servers by `server_number`.
 - Preserve product, data center, `cancelled`, and `paid_until`.
 - Current public/catalog pricing may not match an old contract; allow a manual overlay.
+
+Robot is deliberately not implemented yet: the Robot webservice shape must be validated by a real-account spike before an adapter is built (docs/operations.md, known gaps).
+
+### Cloud implementation (adapter `hetzner-cloud`, issue #17)
+
+- one project-scoped API token with a read-only role, created out-of-band; multiple projects become multiple provider accounts; the read-only client can only express GET;
+- servers, load balancers, primary IPs, floating IPs, and volumes are inventoried by their stable numeric ids; primary IPs and floating IPs may carry no name — the IP itself is the display name;
+- every resource is joined to `GET /pricing` by type and location; the catalog answer is an `estimate` with `TaxBasis::Exclusive` (net amounts; the VAT rate is preserved in the charge notes) — never an invoice actual;
+- volumes are priced as the exact per-GB fraction times the size, rounded once, half-even;
+- a resource with no matching pricing entry still gets a recurring fact with an unknown amount — the charge exists, the price is never inferred;
+- a catalog change closes the old fact version and opens a new one; historical amounts and `observed_at` are never rewritten;
+- the Hetzner Cloud real-account spike is pending: fixtures under `tests/Fixtures/HetznerCloud/` are synthetic; snapshots and images are separately billable spike items, not yet inventoried.
 
 References: [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) and [Robot Webservice](https://robot.hetzner.com/doc/webservice/en.html).
 

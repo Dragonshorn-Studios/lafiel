@@ -364,3 +364,18 @@ it('connects a contabo account through the provider select', function () {
     expect($account->display_name)->toBe('Contabo main')
         ->and($account->credentials()->latest('id')->first()->payload)->toBe(contaboPayload());
 });
+
+it('connects a hetzner cloud account through the provider select', function () {
+    providersPage()
+        ->set('providerKey', 'hetzner-cloud')
+        ->set('displayName', 'HC project')
+        ->set('credential.api_token', hetznerCloudPayload()['api_token'])
+        ->call('connect')
+        ->assertHasNoErrors()
+        ->assertSee('HC project');
+
+    $account = ProviderAccount::query()->where('provider_key', 'hetzner-cloud')->sole();
+
+    expect($account->display_name)->toBe('HC project')
+        ->and($account->credentials()->latest('id')->first()->payload)->toBe(hetznerCloudPayload());
+});

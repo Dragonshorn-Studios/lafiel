@@ -151,3 +151,36 @@ function contaboFixtureDir(): string
 {
     return __DIR__.'/Fixtures/Contabo';
 }
+
+/**
+ * A synthetic Hetzner Cloud credential payload for tests. The value is
+ * fake but secret-shaped, so redaction tests can assert it never leaks.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, string>
+ */
+function hetznerCloudPayload(array $overrides = []): array
+{
+    return [
+        'api_token' => 'HC00000000000000000000000000000000000000000000000000000000000000',
+        ...$overrides,
+    ];
+}
+
+/**
+ * Load one synthetic fixture from tests/Fixtures/HetznerCloud.
+ */
+function hetznerCloudFixture(string $path): mixed
+{
+    $contents = file_get_contents(hetznerCloudFixtureDir().'/'.$path);
+
+    return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Absolute path of the synthetic Hetzner Cloud fixture directory.
+ */
+function hetznerCloudFixtureDir(): string
+{
+    return __DIR__.'/Fixtures/HetznerCloud';
+}
