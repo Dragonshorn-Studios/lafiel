@@ -477,7 +477,10 @@ new #[Title('Providers')] class extends Component {
 
         <form wire:submit="{{ $editingAccountId === null ? 'connect' : 'update' }}" class="space-y-6">
             @if ($editingAccountId === null)
-                <flux:select wire:model="providerKey" :label="__('Provider')" data-test="provider-select">
+                {{-- .live: the provider drives which credential fields and
+                     which notes render — a deferred model would only sync
+                     on submit, leaving the panel stale until then. --}}
+                <flux:select wire:model.live="providerKey" :label="__('Provider')" data-test="provider-select">
                     @foreach ($this->schemas->options() as $key => $label)
                         <flux:select.option :value="$key">{{ $label }}</flux:select.option>
                     @endforeach

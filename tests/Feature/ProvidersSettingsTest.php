@@ -415,3 +415,12 @@ it('shows the selected provider help at the bottom of the edit slide-over', func
         ->assertSee(__('Replace :provider credentials', ['provider' => 'Contabo']))
         ->assertSee(__('Read-only :provider credentials', ['provider' => 'Contabo']));
 });
+
+it('binds the provider select live so the panel reacts without a submit', function () {
+    // A deferred wire:model only syncs on submit — in the browser the
+    // fields and notes would stay stale until then, something the
+    // ->set()-driven tests above cannot catch.
+    providersPage()
+        ->call('add')
+        ->assertSee('wire:model.live="providerKey"', false);
+});
