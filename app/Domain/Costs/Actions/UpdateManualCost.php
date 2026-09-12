@@ -122,6 +122,9 @@ class UpdateManualCost
             'currency' => $validated['amount']?->currency,
             'amount_state' => $validated['amount'] === null ? 'unknown' : 'known',
             'evidence_state' => 'manual',
+            // The override intent belongs to the charge, not to one
+            // version of it.
+            'is_manual_override' => $open->is_manual_override,
             'valid_from' => $changeDate,
             'valid_to' => $validated['valid_to'],
             'observed_at' => new CarbonImmutable,

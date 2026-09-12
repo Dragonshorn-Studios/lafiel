@@ -1,9 +1,11 @@
 <?php
 
 use App\Domain\Costs\Enums\AllocationState;
+use App\Domain\Costs\Enums\AmountState;
 use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\EvidenceState;
 use App\Domain\Costs\Enums\Period;
+use App\Domain\Costs\Enums\SourceKind;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Projection\CostProjector;
 use App\Domain\Costs\Projection\ProjectionFormatter;
@@ -302,4 +304,90 @@ test('the breakdown is snapshot ready', function () {
     expect($breakdown['calculation_version'])->toEqual('v1');
     expect($breakdown['lines'][0]['amount_minor'])->toEqual(18742);
     expect($breakdown['lines'][0]['currency'])->toEqual('PLN');
+});
+
+test('a manual override on every covered service suppresses an unknown synced charge', function () {
+    $service = Service::factory()->create();
+
+    $unknown = CostItem::factory()->create([
+        'source_kind' => SourceKind::Subscription,
+        'amount_state' => AmountState::Unknown,
+        'amount_minor' => null,
+        'currency' => null,
+        'logical_charge_key' => 'contabo:account:1:charge:contabo:resource:100001',
+    ]);
+    $unknown->services()->attach($service->id);
+
+    $override = CostItem::factory()->create([
+        'source_kind' => SourceKind::Manual,
+        'is_manual_override' => true,
+        'amount_minor' => 2150,
+        'currency' => 'EUR',
+        'logical_charge_key' => 'manual:charge:abc',
+    ]);
+    $override->services()->attach($service->id);
+
+    $result = projectOn('2026-09-10');
+
+    expect($result->unknownCount)->toBe(0)
+        ->and($result->pricedCount())->toBe(1)
+        ->and($result->forCurrency('EUR')->monthlyMinor)->toEqual(2150);
+});
+
+test('a manual override on some covered services leaves a package unknown counted', function () {
+    [$covered, $uncovered] = Service::factory()->count(2)->create();
+
+    $packageUnknown = CostItem::factory()->create([
+        'source_kind' => SourceKind::Subscription,
+        'amount_state' => AmountState::Unknown,
+        'amount_minor' => null,
+        'currency' => null,
+        'logical_charge_key' => 'provider:account:1:charge:package',
+    ]);
+    $packageUnknown->services()->attach([$covered->id, $uncovered->id]);
+
+    $override = CostItem::factory()->create([
+        'source_kind' => SourceKind::Manual,
+        'is_manual_override' => true,
+        'amount_minor' => 1000,
+        'currency' => 'EUR',
+        'logical_charge_key' => 'manual:charge:abc',
+    ]);
+    $override->services()->attach($covered->id);
+
+    $result = projectOn('2026-09-10');
+
+    // The unknown still covers a service nobody answered for, so the
+    // incompleteness stays counted.
+    expect($result->unknownCount)->toBe(1)
+        ->and($result->pricedCount())->toBe(1);
+});
+
+test('a plain manual charge without the override flag never suppresses an unknown', function () {
+    $service = Service::factory()->create();
+
+    $unknown = CostItem::factory()->create([
+        'source_kind' => SourceKind::Subscription,
+        'amount_state' => AmountState::Unknown,
+        'amount_minor' => null,
+        'currency' => null,
+        'logical_charge_key' => 'contabo:account:1:charge:contabo:resource:100001',
+    ]);
+    $unknown->services()->attach($service->id);
+
+    $addon = CostItem::factory()->create([
+        'source_kind' => SourceKind::Manual,
+        'is_manual_override' => false,
+        'amount_minor' => 300,
+        'currency' => 'EUR',
+        'logical_charge_key' => 'manual:charge:addon',
+    ]);
+    $addon->services()->attach($service->id);
+
+    $result = projectOn('2026-09-10');
+
+    // An add-on documented by hand is not an answer to the provider's
+    // unknown base price.
+    expect($result->unknownCount)->toBe(1)
+        ->and($result->pricedCount())->toBe(1);
 });

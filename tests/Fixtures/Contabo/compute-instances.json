@@ -1,0 +1,23 @@
+{
+    "data": [
+        {
+            "instanceId": 100001,
+            "displayName": "web-synthetic-01",
+            "status": "RUNNING",
+            "productType": "v1",
+            "region": "EU"
+        },
+        {
+            "instanceId": 100002,
+            "displayName": "db-synthetic-02",
+            "status": "RUNNING",
+            "productType": "v2",
+            "region": "EU"
+        }
+    ],
+    "_metadata": {
+        "totalCount": 2,
+        "totalPages": 1,
+        "currentPage": 1
+    }
+}

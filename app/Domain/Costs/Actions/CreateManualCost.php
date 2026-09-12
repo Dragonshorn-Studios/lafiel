@@ -53,10 +53,13 @@ class CreateManualCost
                 'currency' => $validated['amount']?->currency,
                 'amount_state' => $validated['amount'] === null ? 'unknown' : 'known',
                 'evidence_state' => 'manual',
+                // Overlaying a discovered service is a conscious answer
+                // to its price — including the provider's "unknown".
+                'is_manual_override' => $validated['covers_service_id'] !== null,
                 'valid_from' => $validated['valid_from'],
                 'valid_to' => $validated['valid_to'],
                 'observed_at' => now(),
-                'notes' => $validated['notes'],
+                'notes' => $validated['notes'] ?? null,
             ]);
 
             $renewsAt = $validated['renews_at']
