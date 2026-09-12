@@ -137,7 +137,7 @@ Evidence precedence for the same logical charge:
 invoice actual > usage actual > subscription or renewal quote > manual override
 ```
 
-A manual override wins only when consciously enabled. Actual replaces a quote; the two are not added.
+A manual override wins only when consciously enabled. Actual replaces a quote; the two are not added. An override also answers the provider's unknown on the services it covers: an unknown-amount synced charge whose covered services all carry an open override stops counting toward the incompleteness totals, while the charge itself remains as provenance.
 
 Allowed UI forms include:
 

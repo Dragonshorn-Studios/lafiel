@@ -117,3 +117,37 @@ function cloudflareFixtureDir(): string
 {
     return __DIR__.'/Fixtures/Cloudflare';
 }
+
+/**
+ * A synthetic Contabo credential payload for tests. The values are
+ * fake but secret-shaped, so redaction tests can assert they never leak.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, string>
+ */
+function contaboPayload(array $overrides = []): array
+{
+    return [
+        'client_id' => 'CB00000000000000000000000000000000',
+        'client_secret' => 'CBS000000000000000000000000000000000000000000',
+        ...$overrides,
+    ];
+}
+
+/**
+ * Load one synthetic fixture from tests/Fixtures/Contabo.
+ */
+function contaboFixture(string $path): mixed
+{
+    $contents = file_get_contents(contaboFixtureDir().'/'.$path);
+
+    return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Absolute path of the synthetic Contabo fixture directory.
+ */
+function contaboFixtureDir(): string
+{
+    return __DIR__.'/Fixtures/Contabo';
+}

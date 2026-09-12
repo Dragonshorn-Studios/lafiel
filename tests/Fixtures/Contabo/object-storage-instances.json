@@ -1,0 +1,15 @@
+{
+    "data": [
+        {
+            "objectStorageId": 200001,
+            "displayName": "backup-synthetic-01",
+            "region": "EU",
+            "totalBuckets": 2
+        }
+    ],
+    "_metadata": {
+        "totalCount": 1,
+        "totalPages": 1,
+        "currentPage": 1
+    }
+}

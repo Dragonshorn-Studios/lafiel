@@ -33,6 +33,7 @@ class CostProjector
     public function project(CarbonImmutable $onDate): ProjectionResult
     {
         $winners = $this->winners($onDate);
+        $suppressed = $this->overriddenUnknowns($winners);
 
         /** @var array<string, array{monthly: Rational, annual: Rational, oneTime: int, lines: list<ChargeLine>}> $accumulators */
         $accumulators = [];
@@ -42,11 +43,15 @@ class CostProjector
         $sharedUnallocatedCount = 0;
         $oneTimeCount = 0;
 
-        foreach ($winners as $item) {
+        foreach ($winners as $key => $item) {
             $amount = $item->money();
 
             if ($item->amount_state === AmountState::Unknown || $amount === null) {
-                $unknownCount++;
+                // An unknown whose services all carry a conscious manual
+                // override has been answered — it no longer counts.
+                if (! isset($suppressed[$key])) {
+                    $unknownCount++;
+                }
 
                 continue;
             }
@@ -123,6 +128,58 @@ class CostProjector
             sharedUnallocatedCount: $sharedUnallocatedCount,
             oneTimeCount: $oneTimeCount,
         );
+    }
+
+    /**
+     * Winning synced charges whose unknown price a conscious manual
+     * override has answered: every service the charge covers also
+     * carries an open manual override, so the provider's "unknown" is
+     * no longer the best known price for any of them. The charge
+     * itself stays — history and provenance are untouched — but it no
+     * longer counts toward the incompleteness totals.
+     *
+     * @param  array<string, CostItem>  $winners
+     * @return array<string, true> suppressed winners by logical charge key
+     */
+    public function overriddenUnknowns(array $winners): array
+    {
+        $overrideCovered = [];
+
+        foreach ($winners as $winner) {
+            if ($winner->source_kind === SourceKind::Manual && $winner->is_manual_override) {
+                foreach ($winner->services as $service) {
+                    $overrideCovered[$service->id] = true;
+                }
+            }
+        }
+
+        if ($overrideCovered === []) {
+            return [];
+        }
+
+        $suppressed = [];
+
+        foreach ($winners as $key => $winner) {
+            if ($winner->source_kind === SourceKind::Manual || $winner->money() !== null) {
+                continue;
+            }
+
+            $services = $winner->services;
+
+            if ($services->isEmpty()) {
+                continue;
+            }
+
+            foreach ($services as $service) {
+                if (! isset($overrideCovered[$service->id])) {
+                    continue 2;
+                }
+            }
+
+            $suppressed[$key] = true;
+        }
+
+        return $suppressed;
     }
 
     /**

@@ -348,3 +348,19 @@ it('summarizes a cloudflare account without echoing the token', function () {
     expect($html)->toContain('API token')
         ->not->toContain(cloudflarePayload()['api_token']);
 });
+
+it('connects a contabo account through the provider select', function () {
+    providersPage()
+        ->set('providerKey', 'contabo')
+        ->set('displayName', 'Contabo main')
+        ->set('credential.client_id', contaboPayload()['client_id'])
+        ->set('credential.client_secret', contaboPayload()['client_secret'])
+        ->call('connect')
+        ->assertHasNoErrors()
+        ->assertSee('Contabo main');
+
+    $account = ProviderAccount::query()->where('provider_key', 'contabo')->sole();
+
+    expect($account->display_name)->toBe('Contabo main')
+        ->and($account->credentials()->latest('id')->first()->payload)->toBe(contaboPayload());
+});

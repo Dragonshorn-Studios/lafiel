@@ -33,7 +33,7 @@ Lafiel is a small, self-hosted infrastructure cost ledger for one person or a sm
 | Manual costs | Full vertical slice | Advanced allocation workflows |
 | OVHcloud | Inventory and renewal quotes | Invoice actuals if a reliable API is proven |
 | Cloudflare | Fixed subscriptions (v1.1, #15) | Metered usage only after a capability spike |
-| Contabo | — | Inventory with manual price overlays |
+| Contabo | Inventory with manual price overlays (#16) | Billing surface, if a spike proves one exists |
 | Hetzner | — | Cloud and Robot adapters |
 | Currency | PLN or explicitly configured manual FX | A licensed, documented daily FX source |
 | Operations | Docker/Coolify, queue, scheduler, backup/restore | Broader deployment targets |

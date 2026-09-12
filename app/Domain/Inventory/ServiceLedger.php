@@ -32,6 +32,7 @@ class ServiceLedger
             ->get();
 
         $winners = $this->projector->winners($now);
+        $suppressed = $this->projector->overriddenUnknowns($winners);
 
         // The open winning charges behind each service. A package
         // charge appears under every service it covers, but the
@@ -54,7 +55,7 @@ class ServiceLedger
         $rows = [];
 
         foreach ($services as $service) {
-            $rows[] = $this->row($service, $chargesByService[$service->id], $now);
+            $rows[] = $this->row($service, $chargesByService[$service->id], $now, $suppressed);
         }
 
         return $rows;
@@ -62,8 +63,11 @@ class ServiceLedger
 
     /**
      * @param  list<CostItem>  $charges
+     * @param  array<string, true>  $suppressed  overridden unknowns (see
+     *                                           CostProjector::overriddenUnknowns) — kept in the charge
+     *                                           views, excluded from the unknown badge
      */
-    private function row(Service $service, array $charges, CarbonImmutable $now): ServiceLedgerRow
+    private function row(Service $service, array $charges, CarbonImmutable $now, array $suppressed): ServiceLedgerRow
     {
         $providerName = $service->providerAccount?->display_name;
 
@@ -96,8 +100,12 @@ class ServiceLedger
             if ($amount === null || $monthlyEquivalent === null) {
                 // Known amount with an unknown cadence counts as
                 // unknown too — including one-time charges, which have
-                // no monthly equivalent by definition.
-                $unknownCount++;
+                // no monthly equivalent by definition. A charge whose
+                // unknown was answered by a conscious manual override
+                // is kept as provenance but stops counting.
+                if (! isset($suppressed[$charge->logical_charge_key])) {
+                    $unknownCount++;
+                }
             } elseif ($monthlyCurrency !== null && $monthlyCurrency !== $amount->currency) {
                 // Never mix currencies inside one row's equivalent; the
                 // un-mixable charge is counted as unknown instead of

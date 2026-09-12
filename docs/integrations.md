@@ -105,6 +105,15 @@ Contabo exposes Compute and Object Storage inventory, product IDs, add-ons, life
 
 Reference: [Contabo API](https://api.contabo.com/).
 
+Implementation (adapter `contabo`, issue #16):
+
+- OAuth2 client credentials held by a dedicated API user whose custom role carries READ scope only; the read-only resource client can only express GET (the token exchange is auth plumbing inside the client, never a resource call);
+- Compute instances (`GET /v1/compute/instances`) and Object Storage (`GET /v1/object-storage/instances`) are discovered by their stable ids; Storage VPS is unsupported by the Compute API and never appears;
+- Contabo exposes no dependable billing surface, so every discovered resource gets one recurring cost fact with an unknown amount (`estimate` evidence, monthly) — the charge demonstrably exists, its price is never inferred from product listings;
+- the manual price overlay is the price path: attach a manual cost to the discovered service (`covers_service_id`) and it is flagged `is_manual_override` — it survives re-sync (disjoint key namespaces) and provider-side renames (pivot on stable identity);
+- a conscious override on every service a charge covers stops that unknown from counting toward the incompleteness totals (the charge itself remains as provenance); a partial package override keeps the unknown counted;
+- the real-account spike is still pending: it must confirm the payload shapes and probe for any account-specific billing surface before the manual-price assumption is hard-coded.
+
 ## Hetzner — later
 
 Treat Hetzner Cloud and Robot as separate adapters with separate credentials and capabilities.
