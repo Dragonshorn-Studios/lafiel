@@ -6,6 +6,7 @@ use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\Renewal;
+use App\Domain\History\TakeSnapshot;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
@@ -16,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class UpdateManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * Update a manual charge and the service it bills for. Price-affecting
      * changes (amount, currency, period) never rewrite the existing fact:
@@ -31,7 +34,7 @@ class UpdateManualCost
     {
         $validated = $this->validate($input);
 
-        return DB::transaction(function () use ($requested, $validated): CostItem {
+        $costItem = DB::transaction(function () use ($requested, $validated): CostItem {
             $open = $this->openVersion($requested);
             $service = $open->services()->first();
 
@@ -64,6 +67,12 @@ class UpdateManualCost
 
             return $costItem;
         });
+
+        // Inputs may have changed: capture; the checksum dedupes when
+        // the stored output would not change.
+        $this->takeSnapshot->capture();
+
+        return $costItem;
     }
 
     /**
@@ -141,8 +150,13 @@ class UpdateManualCost
 
         $renewal = Renewal::query()->firstOrNew(['cost_item_id' => $open->id]);
 
-        if ($validated['renews_at'] !== null) {
-            $renewal->renews_at = $validated['renews_at'];
+        // Without an explicit date, auto-renew assumes the next
+        // occurrence one period after the charge's current start.
+        $renewsAt = $validated['renews_at']
+            ?? ($validated['auto_renew'] ? $validated['period']->advance($open->valid_from->startOfDay()) : null);
+
+        if ($renewsAt !== null) {
+            $renewal->renews_at = $renewsAt;
             $renewal->auto_renew = $validated['auto_renew'];
             $renewal->save();
 

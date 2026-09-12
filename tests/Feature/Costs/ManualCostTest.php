@@ -92,7 +92,7 @@ test('a manual cost reaches the list and the projection', function () {
     expect(Renewal::query()->count())->toEqual(1);
 
     // The Overview sees the same cost through the shared projection.
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
 
     expect($overview->get('summary')['monthly'])->toEqual('86.99 PLN/mo');
 });
@@ -112,7 +112,7 @@ test('an unknown amount is accepted and counted, never summed', function () {
 
     expect($item->amount_state->value)->toEqual('unknown');
 
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
 
     expect($overview->get('summary')['monthly'])->toEqual('0.00 PLN/mo + 1 unknown');
 });
@@ -309,7 +309,7 @@ test('a manual cost can overlay an existing provider service', function () {
     expect($discovered->costItems()->count())->toEqual(1);
 
     // The overlay counts once in the projection.
-    $overview = Livewire::test('pages::overview.totals');
+    $overview = Livewire::test('pages::overview.index');
     expect($overview->get('summary')['monthly'])->toEqual('42.00 PLN/mo');
 });
 
@@ -347,4 +347,75 @@ test('a non-ISO currency string is a validation error, not a crash', function ()
         ->assertHasErrors(['currency']);
 
     expect(CostItem::query()->count())->toEqual(0);
+});
+
+test('add cost opens the slide-over panel and saving closes it', function () {
+    $page = costsPage()->call('add');
+
+    $page->assertSet('panelOpen', true);
+
+    $page->set('name', 'Panel service')
+        ->set('category', 'saas')
+        ->set('amount', '12.00')
+        ->set('currency', 'PLN')
+        ->set('period', 'monthly')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('panelOpen', false);
+
+    expect(CostItem::query()->where('source_kind', 'manual')->count())->toBe(1);
+});
+
+test('a failed save keeps the slide-over open', function () {
+    costsPage()
+        ->call('add')
+        ->set('name', '')
+        ->call('save')
+        ->assertHasErrors()
+        ->assertSet('panelOpen', true);
+});
+
+test('the costs table shows the nothing-here empty state', function () {
+    costsPage()->assertSee(__('Nothing here'));
+});
+
+test('auto renew assumes the next occurrence one period after the start', function () {
+    $monthly = createCost(['valid_from' => '2026-08-01', 'auto_renew' => true]);
+    expect($monthly->renewal->renews_at->toDateString())->toBe('2026-09-01')
+        ->and($monthly->renewal->auto_renew)->toBeTrue();
+
+    $quarterly = createCost(['valid_from' => '2026-08-01', 'period' => 'quarterly', 'auto_renew' => true]);
+    expect($quarterly->renewal->renews_at->toDateString())->toBe('2026-11-01');
+
+    $annual = createCost(['valid_from' => '2026-08-01', 'period' => 'annual', 'auto_renew' => true]);
+    expect($annual->renewal->renews_at->toDateString())->toBe('2027-08-01');
+});
+
+test('a one time charge cannot auto renew', function () {
+    $item = createCost(['period' => 'one_time', 'auto_renew' => true]);
+
+    expect($item->renewal)->toBeNull();
+});
+
+test('an explicit renewal date always wins over the assumption', function () {
+    $item = createCost(['valid_from' => '2026-08-01', 'renews_at' => '2026-09-20', 'auto_renew' => true]);
+
+    expect($item->renewal->renews_at->toDateString())->toBe('2026-09-20');
+});
+
+test('the add cost panel shows the assumed renewal date while the box is checked', function () {
+    $assumed = now()->addMonth()->format('Y-m-d');
+
+    costsPage()
+        ->call('add')
+        ->set('autoRenew', true)
+        ->assertSee(__('No date set — the next renewal is assumed to be :date, one period after the start.', ['date' => $assumed]), false);
+});
+
+test('an unknown period asks for an explicit renewal date', function () {
+    costsPage()
+        ->call('add')
+        ->set('period', 'unknown')
+        ->set('autoRenew', true)
+        ->assertSee(__('This period cannot renew automatically — set a renewal date instead.'));
 });

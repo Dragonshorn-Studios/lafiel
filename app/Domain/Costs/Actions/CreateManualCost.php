@@ -6,6 +6,7 @@ use App\Domain\Costs\Enums\ChargeKind;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\Renewal;
+use App\Domain\History\TakeSnapshot;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
 use App\Domain\Support\ValueObjects\Money;
@@ -18,6 +19,8 @@ use Illuminate\Validation\ValidationException;
 
 class CreateManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * Create one manual charge with optional renewal and coverage. Every
      * charge carries its own logical charge key, so several independent
@@ -35,7 +38,7 @@ class CreateManualCost
     {
         $validated = $this->validate($input);
 
-        return DB::transaction(function () use ($validated): CostItem {
+        $costItem = DB::transaction(function () use ($validated): CostItem {
             $service = $this->resolveService($validated);
             $validFrom = $validated['valid_from']->startOfDay();
             $chargeKey = sprintf('manual:charge:%s', Str::uuid()->toString());
@@ -56,16 +59,25 @@ class CreateManualCost
                 'notes' => $validated['notes'],
             ]);
 
-            if ($validated['renews_at'] !== null) {
+            $renewsAt = $validated['renews_at']
+                ?? ($validated['auto_renew'] ? $validated['period']->advance($validFrom) : null);
+
+            if ($renewsAt !== null) {
                 Renewal::create([
                     'cost_item_id' => $costItem->id,
-                    'renews_at' => $validated['renews_at'],
+                    'renews_at' => $renewsAt,
                     'auto_renew' => $validated['auto_renew'],
                 ]);
             }
 
             return $costItem;
         });
+
+        // Inputs may have changed: capture; the checksum dedupes when
+        // the stored output would not change.
+        $this->takeSnapshot->capture();
+
+        return $costItem;
     }
 
     /**

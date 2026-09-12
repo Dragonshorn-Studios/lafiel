@@ -3,6 +3,7 @@
 namespace App\Domain\Costs\Actions;
 
 use App\Domain\Costs\Models\CostItem;
+use App\Domain\History\TakeSnapshot;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -10,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class EndManualCost
 {
+    public function __construct(private readonly TakeSnapshot $takeSnapshot) {}
+
     /**
      * End a manual charge. The end date is the item's last charged day:
      * the item leaves future projections and stays in history. Ending an
@@ -25,15 +28,21 @@ class EndManualCost
             'valid_to' => ['nullable', 'date'],
         ])->validate();
 
-        DB::transaction(function () use ($costItem, $validated): void {
+        $ended = DB::transaction(function () use ($costItem, $validated): bool {
             if ($costItem->valid_to !== null) {
-                return;
+                return false;
             }
 
             $costItem->valid_to = isset($validated['valid_to'])
                 ? new CarbonImmutable($validated['valid_to'])->endOfDay()
                 : new CarbonImmutable()->endOfDay();
             $costItem->save();
+
+            return true;
         });
+
+        if ($ended) {
+            $this->takeSnapshot->capture();
+        }
     }
 }

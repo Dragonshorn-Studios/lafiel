@@ -21,6 +21,9 @@ new #[Title('Cost history')] class extends Component {
 <section class="w-full space-y-6">
     <flux:heading size="h1">{{ __('Cost history') }}</flux:heading>
 
+    @if ($this->history->isEmpty())
+        <x-imperial.empty-state :hint="__('Ended charges keep their full price history here.')"/>
+    @else
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
@@ -49,4 +52,5 @@ new #[Title('Cost history')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    @endif
 </section>

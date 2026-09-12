@@ -23,8 +23,8 @@ use Carbon\CarbonImmutable;
  * and a new version opens under the same logical charge, so history
  * keeps every price. Evidence upgrades (quote to actual), observation
  * times, and renewal dates update in place. Manual rows are never
- * touched — they live under a different key namespace and win through
- * the projector's precedence, not through here.
+ * touched: they live under a disjoint key namespace, so they never
+ * collide with provider facts here at all.
  */
 final class PersistCostFacts
 {
@@ -76,6 +76,7 @@ final class PersistCostFacts
             $open->source_kind = $fact->sourceKind;
             $open->evidence_state = $fact->evidenceState;
             $open->tax_basis = $fact->taxBasis;
+            $open->allocation_state = $fact->allocationState;
             $open->observed_at = $batch->observedAt;
             if ($open->isDirty()) {
                 $open->save();
@@ -124,6 +125,7 @@ final class PersistCostFacts
             'amount_state' => $known ? AmountState::Known : AmountState::Unknown,
             'evidence_state' => $fact->evidenceState,
             'tax_basis' => $fact->taxBasis,
+            'allocation_state' => $fact->allocationState,
             'valid_from' => $fact->validFrom,
             'observed_at' => $batch->observedAt,
         ]);

@@ -10,6 +10,8 @@ Lafiel is a small, self-hosted infrastructure cost ledger for one person or a sm
 2. [Implementation plan](implementation-plan.md) — milestones, issue map, dependencies, and review gates.
 3. [Integrations](integrations.md) — provider capabilities, evidence rules, credentials, and provider-specific risks.
 4. [Design system](design-system.md) — Imperial Ledger visual language, semantic tokens, layouts, and UI rules.
+5. [Operations](operations.md) — install, deployment, queue and scheduler, backup and restore, health and monitoring, and the known provider-gaps checklist.
+6. [Glossary](glossary.md) — the data-semantics vocabulary: evidence, amounts, allocation, completeness, freshness, and lifecycle.
 
 ## Non-negotiable rules for agents
 

@@ -5,12 +5,14 @@ use App\Domain\Costs\Actions\EndManualCost;
 use App\Domain\Costs\Actions\UpdateManualCost;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
+use Flux\Flux;
 use App\Domain\Inventory\Models\Service;
+use Carbon\CarbonImmutable;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Costs')] class extends Component {
+new #[Title('Services')] class extends Component {
     public string $vendor = '';
 
     public string $name = '';
@@ -41,6 +43,8 @@ new #[Title('Costs')] class extends Component {
 
     public ?int $editingCostItemId = null;
 
+    public bool $panelOpen = false;
+
     /**
      * The initial price fields, to detect a price change on save.
      *
@@ -53,15 +57,29 @@ new #[Title('Costs')] class extends Component {
         $this->validFrom = now()->format('Y-m-d');
     }
 
-    #[Computed]
-    public function costs(): \Illuminate\Support\Collection
+    /**
+     * Open the slide-over with a clean form for a new charge.
+     */
+    public function add(): void
     {
-        return CostItem::query()
-            ->where('source_kind', 'manual')
-            ->whereNull('valid_to')
-            ->with(['services', 'renewal'])
-            ->orderBy('id')
-            ->get();
+        $this->resetForm();
+        $this->panelOpen = true;
+    }
+
+    public function closePanel(): void
+    {
+        $this->resetForm();
+        $this->panelOpen = false;
+    }
+
+    /**
+     * The Services table: every service with a roll-up of its open
+     * winning charges. The read model owns all equivalent math.
+     */
+    #[Computed]
+    public function rows(): array
+    {
+        return app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
     }
 
     #[Computed]
@@ -93,14 +111,24 @@ new #[Title('Costs')] class extends Component {
         ];
 
         if ($this->editingCostItemId !== null) {
+            $item = CostItem::find($this->editingCostItemId);
+
+            if ($item === null) {
+                Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+                $this->closePanel();
+
+                return;
+            }
+
             $input['price_changed'] = $this->priceChanged();
 
-            app(UpdateManualCost::class)->update(CostItem::findOrFail($this->editingCostItemId), $input);
+            app(UpdateManualCost::class)->update($item, $input);
         } else {
             app(CreateManualCost::class)->create($input);
         }
 
         $this->resetForm();
+        $this->panelOpen = false;
     }
 
     public function edit(int $costItemId): void
@@ -112,6 +140,8 @@ new #[Title('Costs')] class extends Component {
             ->first();
 
         if ($open === null) {
+            Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+
             return;
         }
 
@@ -132,11 +162,20 @@ new #[Title('Costs')] class extends Component {
         $this->url = (string) $service?->url;
         $this->notes = (string) $open->notes;
         $this->loadedPrice = ['amount' => $this->amount, 'currency' => $this->currency, 'period' => $this->period];
+        $this->panelOpen = true;
     }
 
     public function end(int $costItemId): void
     {
-        app(EndManualCost::class)->end(CostItem::findOrFail($costItemId));
+        $item = CostItem::find($costItemId);
+
+        if ($item === null) {
+            Flux::toast(variant: 'warning', text: __('This cost has already been ended or changed elsewhere. Reload and try again.'));
+
+            return;
+        }
+
+        app(EndManualCost::class)->end($item);
 
         $this->resetForm();
     }
@@ -148,6 +187,29 @@ new #[Title('Costs')] class extends Component {
         $this->currency = 'PLN';
         $this->period = 'monthly';
         $this->loadedPrice = ['amount' => '', 'currency' => 'PLN', 'period' => 'monthly'];
+    }
+
+    /**
+     * The renewal date auto-renew assumes when none is set: one period
+     * after the charge's start. Null when the period cannot renew.
+     */
+    public function assumedRenewalDate(): ?string
+    {
+        if ($this->renewsAt !== '' || ! $this->autoRenew) {
+            return null;
+        }
+
+        $from = new CarbonImmutable($this->validFrom === '' ? now()->toDateString() : $this->validFrom);
+
+        return Period::from($this->period)->advance($from)?->format('Y-m-d');
+    }
+
+    /**
+     * Present the row's rounded-once monthly equivalent.
+     */
+    public function major(\App\Domain\Inventory\ServiceLedgerRow $row): string
+    {
+        return \App\Domain\Support\ValueObjects\Money::ofMinor((int) $row->monthlyMinor, (string) $row->monthlyCurrency)->majorAmount();
     }
 
     private function priceChanged(): bool
@@ -162,56 +224,119 @@ new #[Title('Costs')] class extends Component {
     }
 }; ?>
 <section class="w-full space-y-6">
-    <flux:heading size="h1">{{ __('Costs') }}</flux:heading>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <flux:heading size="h1">{{ __('Services') }}</flux:heading>
 
-    <div class="flex gap-2 text-sm">
-        <flux:link :href="route('costs.renewals')">{{ __('Renewals') }}</flux:link>
-        <flux:link :href="route('costs.history')">{{ __('History') }}</flux:link>
+        <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
+            {{ __('Add cost') }}
+        </flux:button>
     </div>
 
+    @if ($this->rows === [])
+        <x-imperial.empty-state :hint="__('Manual charges and provider services will appear here once added.')">
+            <flux:button variant="primary" wire:click="add" class="mt-2">
+                {{ __('Add cost') }}
+            </flux:button>
+        </x-imperial.empty-state>
+    @else
     <flux:table>
         <flux:table.columns>
+            <flux:table.column>{{ __('Provider') }}</flux:table.column>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
-            <flux:table.column>{{ __('Vendor') }}</flux:table.column>
-            <flux:table.column>{{ __('Amount') }}</flux:table.column>
-            <flux:table.column>{{ __('Period') }}</flux:table.column>
-            <flux:table.column>{{ __('Renews') }}</flux:table.column>
+            <flux:table.column>{{ __('Category') }}</flux:table.column>
+            <flux:table.column>{{ __('Billing') }}</flux:table.column>
+            <flux:table.column>{{ __('Source amount') }}</flux:table.column>
+            <flux:table.column>{{ __('Monthly equivalent') }}</flux:table.column>
+            <flux:table.column>{{ __('Renewal') }}</flux:table.column>
+            <flux:table.column>{{ __('Freshness') }}</flux:table.column>
             <flux:table.column>{{ __('Actions') }}</flux:table.column>
         </flux:table.columns>
 
         <flux:table.rows>
-            @foreach ($this->costs as $item)
-                @php($service = $item->services->first())
-                <flux:table.row :key="$item->id">
-                    <flux:table.cell>{{ $service?->name }}<span class="block text-xs text-zinc-500">{{ $service?->category }}</span></flux:table.cell>
-                    <flux:table.cell>{{ $service?->vendor }}</flux:table.cell>
+            @foreach ($this->rows as $row)
+                <flux:table.row :key="$row->service->id">
+                    <flux:table.cell>{{ $row->provider }}</flux:table.cell>
+
                     <flux:table.cell>
-                        @if ($item->amount_state->value === 'unknown')
+                        <flux:link :href="route('services.show', $row->service)" wire:navigate class="font-medium">
+                            {{ $row->service->name }}
+                        </flux:link>
+                        <span class="flex flex-wrap gap-1 pt-1">
+                            @if ($row->package)
+                                <flux:badge size="sm" variant="info">{{ __('package') }}</flux:badge>
+                            @endif
+                            @if ($row->unknownCount > 0)
+                                <flux:badge size="sm">{{ __(':n unknown', ['n' => $row->unknownCount]) }}</flux:badge>
+                            @endif
+                            @if ($row->staleCount > 0)
+                                <flux:badge size="sm" variant="warning">{{ __('stale') }}</flux:badge>
+                            @endif
+                        </span>
+                    </flux:table.cell>
+
+                    <flux:table.cell>{{ $row->service->category }}</flux:table.cell>
+
+                    <flux:table.cell>
+                        {{ $row->billing ?? '—' }}
+                        @if ($row->chargeCount > 1)
+                            <span class="block text-xs text-ink-muted">{{ __(':n charges', ['n' => $row->chargeCount]) }}</span>
+                        @endif
+                    </flux:table.cell>
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->sourceAmount === null)
                             {{ __('unknown') }}
                         @else
-                            {{ $item->money()?->majorAmount() }} {{ $item->currency }}
+                            {{ $row->sourceAmount->majorAmount() }} {{ $row->sourceAmount->currency }}
                         @endif
                     </flux:table.cell>
-                    <flux:table.cell>{{ $item->period->value }}</flux:table.cell>
-                    <flux:table.cell>
-                        @if ($item->renewal)
-                            {{ $item->renewal->renews_at->format('Y-m-d') }}
-                            {{ $item->renewal->auto_renew ? __('(auto)') : '' }}
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->monthlyMinor === null)
+                            {{ __('unknown') }}
+                        @else
+                            {{ $this->major($row) }} {{ $row->monthlyCurrency }}
                         @endif
                     </flux:table.cell>
+
+                    <flux:table.cell class="font-mono tabular-nums">
+                        @if ($row->renewsAt !== null)
+                            {{ $row->renewsAt->format('Y-m-d') }}
+                            {{ $row->autoRenew ? __('(auto)') : '' }}
+                        @else
+                            —
+                        @endif
+                    </flux:table.cell>
+
                     <flux:table.cell>
-                        <flux:button size="xs" wire:click="edit({{ $item->id }})">{{ __('Edit') }}</flux:button>
-                        <flux:button size="xs" variant="danger" wire:click="end({{ $item->id }})" wire:confirm="{{ __('End this cost?') }}">
-                            {{ __('End') }}
-                        </flux:button>
+                        @if ($row->freshness() === 'stale')
+                            <flux:badge size="sm" variant="warning">{{ __('Stale') }}</flux:badge>
+                        @elseif ($row->freshness() === 'manual')
+                            {{ __('Manual') }}
+                        @else
+                            {{ __('Synced') }}
+                        @endif
+                    </flux:table.cell>
+
+                    <flux:table.cell>
+                        @if ($row->manualChargeId !== null)
+                            <flux:button size="xs" wire:click="edit({{ $row->manualChargeId }})">{{ __('Edit') }}</flux:button>
+                            <flux:button size="xs" variant="danger" wire:click="end({{ $row->manualChargeId }})" wire:confirm="{{ __('End this cost?') }}">
+                                {{ __('End') }}
+                            </flux:button>
+                        @else
+                            <flux:link :href="route('services.show', $row->service)" wire:navigate size="sm">{{ __('Details') }}</flux:link>
+                        @endif
                     </flux:table.cell>
                 </flux:table.row>
             @endforeach
         </flux:table.rows>
     </flux:table>
+    @endif
 
-    <flux:card class="max-w-2xl">
-        <flux:heading class="mb-4">
+    {{-- The add/edit form lives in a right-side pop-out panel. --}}
+    <flux:modal name="cost-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
+        <flux:heading size="lg" class="mb-6">
             {{ $editingCostItemId !== null ? __('Edit cost') : __('Add manual cost') }}
         </flux:heading>
 
@@ -241,7 +366,9 @@ new #[Title('Costs')] class extends Component {
                 </flux:select>
             </div>
 
-            <flux:checkbox wire:model="unknownAmount" :label="__('Amount unknown')" />
+            <div>
+                <flux:checkbox wire:model="unknownAmount" :label="__('Amount unknown')" />
+            </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="validFrom" :label="__('Start')" type="date" required />
@@ -250,18 +377,28 @@ new #[Title('Costs')] class extends Component {
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="renewsAt" :label="__('Next renewal')" type="date" />
-                <flux:checkbox wire:model="autoRenew" :label="__('Auto-renew')" />
+                <div class="flex items-center">
+                    <flux:checkbox wire:model="autoRenew" :label="__('Auto-renew')" />
+                </div>
             </div>
+
+            @if ($renewsAt === '' && $autoRenew)
+                @if ($assumed = $this->assumedRenewalDate())
+                    <p class="text-xs text-ink-muted">
+                        {{ __('No date set — the next renewal is assumed to be :date, one period after the start.', ['date' => $assumed]) }}
+                    </p>
+                @else
+                    <p class="text-xs text-ink-muted">{{ __('This period cannot renew automatically — set a renewal date instead.') }}</p>
+                @endif
+            @endif
 
             <flux:input wire:model="url" :label="__('URL')" type="url" />
             <flux:textarea wire:model="notes" :label="__('Notes')" />
 
-            <div class="flex gap-2">
+            <div class="flex gap-2 pt-2">
                 <flux:button variant="primary" type="submit" data-test="save-cost">{{ __('Save') }}</flux:button>
-                @if ($editingCostItemId !== null)
-                    <flux:button type="button" wire:click="resetForm">{{ __('Cancel') }}</flux:button>
-                @endif
+                <flux:button type="button" wire:click="closePanel">{{ __('Cancel') }}</flux:button>
             </div>
         </form>
-    </flux:card>
+    </flux:modal>
 </section>

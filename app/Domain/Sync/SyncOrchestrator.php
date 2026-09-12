@@ -2,6 +2,7 @@
 
 namespace App\Domain\Sync;
 
+use App\Domain\History\TakeSnapshot;
 use App\Domain\Inventory\Lifecycle\ApplyInventoryLifecycle;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\CapabilityOutcome;
@@ -46,6 +47,7 @@ final class SyncOrchestrator
         private readonly PersistInventoryBatch $persistInventory,
         private readonly PersistCostFacts $persistCostFacts,
         private readonly EndAbsentCostFacts $endAbsentCostFacts,
+        private readonly TakeSnapshot $takeSnapshot,
         private readonly ApplyInventoryLifecycle $applyLifecycle,
         private readonly RecordCapabilityStates $recordCapabilities,
         private readonly ReconcileStaleRuns $reconcile,
@@ -239,8 +241,14 @@ final class SyncOrchestrator
 
                 // Ending an unreported charge takes positive evidence that
                 // the whole cost phase was complete — not just the overall
-                // flag: a per-capability partial must end nothing.
-                $fullyComplete = $costBatch->completeness === BatchCompleteness::Complete
+                // flag: a per-capability partial must end nothing. The
+                // inventory must be complete too: facts are built only for
+                // inventoried services, so a partial inventory hides a
+                // service whose metadata fetch failed, and ending its
+                // charge would treat the absence as cancellation — the
+                // thing the lifecycle refuses to do.
+                $fullyComplete = $inventoryBatch->completeness === BatchCompleteness::Complete
+                    && $costBatch->completeness === BatchCompleteness::Complete
                     && collect($costCapabilities)->every(
                         fn (ProviderCapability $capability): bool => $costBatch->completenessFor($capability) === BatchCompleteness::Complete,
                     );
@@ -270,6 +278,10 @@ final class SyncOrchestrator
         if (in_array($status, [SyncStatus::Succeeded, SyncStatus::Partial], true)) {
             $account->last_success_at = new CarbonImmutable;
             $account->save();
+
+            // The sync may have moved material inputs; the snapshot's
+            // checksum dedupes, so an unchanged run adds no noise.
+            $this->takeSnapshot->capture();
         }
 
         return $this->finish($run, $status, $counts, $warnings, $redactor);

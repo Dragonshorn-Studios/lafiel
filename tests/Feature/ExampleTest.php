@@ -8,10 +8,10 @@ test('guests visiting the root are sent to setup while no administrator exists',
     $response->assertRedirect(route('setup'));
 });
 
-test('guests visiting the root are sent to the dashboard once installed', function () {
+test('guests visiting the dashboard alias are sent to the overview', function () {
     User::factory()->create();
 
     $response = $this->get(route('home'));
 
-    $response->assertRedirect(route('dashboard'));
+    $response->assertRedirect(route('overview'));
 });

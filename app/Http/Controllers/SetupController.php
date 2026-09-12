@@ -31,6 +31,10 @@ class SetupController extends Controller
 
         Auth::login($user);
 
-        return redirect()->route('dashboard');
+        // Creating the first administrator arms the pipeline liveness
+        // checks: from here on, a missing heartbeat is a dead pipeline,
+        // not a fresh install (OpsHealth anchors on this user).
+
+        return redirect()->route('overview');
     }
 }

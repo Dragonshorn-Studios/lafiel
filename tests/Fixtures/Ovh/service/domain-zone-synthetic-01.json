@@ -1,0 +1,23 @@
+{
+    "serviceId": 400010002,
+    "serviceName": "domain-zone-synthetic-01",
+    "status": "ok",
+    "domain": "domain-synthetic-01.eu.org",
+    "creation": "2026-02-20T14:02:10+01:00",
+    "offer": "zone-2025",
+    "route": "/domain/zone/domain-synthetic-01.eu.org",
+    "renew": {
+        "automatic": false,
+        "deleteAt": "2026-10-20T00:00:00+02:00",
+        "forced": false,
+        "manualPayment": false,
+        "period": "P1M",
+        "renew": "manual",
+        "renewDeleteAt": null
+    },
+    "engagedUpTo": null,
+    "possibleRenewPeriods": [
+        "P1M",
+        "P12M"
+    ]
+}

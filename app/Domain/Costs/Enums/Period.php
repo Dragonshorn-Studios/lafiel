@@ -4,6 +4,7 @@ namespace App\Domain\Costs\Enums;
 
 use App\Domain\Support\ValueObjects\Money;
 use App\Domain\Support\ValueObjects\Rational;
+use Carbon\CarbonImmutable;
 
 /**
  * Recurrence of a charge. Monthly and annual equivalents are exact
@@ -44,6 +45,21 @@ enum Period: string
             self::Monthly => $rational->multiply(12),
             self::Quarterly => $rational->multiply(4),
             self::Annual => $rational,
+            self::OneTime, self::Unknown => null,
+        };
+    }
+
+    /**
+     * The next occurrence one period after the given date: monthly
+     * renews the next month, annual the next year, and so on. Null for
+     * periods that never renew (one-time) or whose cadence is unknown.
+     */
+    public function advance(CarbonImmutable $from): ?CarbonImmutable
+    {
+        return match ($this) {
+            self::Monthly => $from->addMonth(),
+            self::Quarterly => $from->addMonths(3),
+            self::Annual => $from->addYear(),
             self::OneTime, self::Unknown => null,
         };
     }

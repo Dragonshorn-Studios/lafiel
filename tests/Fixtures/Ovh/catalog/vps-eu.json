@@ -1,0 +1,53 @@
+{
+    "catalogName": "vps",
+    "date": "2026-09-01",
+    "pricingMode": "default",
+    "locale": {
+        "currencyCode": "EUR",
+        "name": "Europe/Paris",
+        "position": "6"
+    },
+    "catalog": [
+        {
+            "name": "vps",
+            "products": [
+                {
+                    "name": "vps-essentials-2025",
+                    "planCode": "vps-essentials-2025-monthly",
+                    "pricings": [
+                        {
+                            "duration": "P1M",
+                            "pricingMode": "default",
+                            "description": "monthly renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "7.00 €",
+                                "value": 7.0
+                            },
+                            "priceInUtv": 700,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        },
+                        {
+                            "duration": "P12M",
+                            "pricingMode": "default",
+                            "description": "annual renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "72.00 €",
+                                "value": 72.0
+                            },
+                            "priceInUtv": 7200,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "structures": [],
+    "addonsFamilies": []
+}
