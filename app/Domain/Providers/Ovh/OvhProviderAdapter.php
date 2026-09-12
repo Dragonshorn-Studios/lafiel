@@ -237,6 +237,7 @@ final class OvhProviderAdapter implements ProviderAdapter
                 ProviderCapability::Usage->value => BatchCompleteness::Unsupported,
                 ProviderCapability::Invoices->value => BatchCompleteness::Unsupported,
             ],
+            reportedCapabilities: [ProviderCapability::RenewalQuotes],
         );
     }
 

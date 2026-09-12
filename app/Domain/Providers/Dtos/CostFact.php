@@ -18,6 +18,10 @@ use Carbon\CarbonImmutable;
  * price belongs to the covered services as stated and
  * `shared_unallocated` when a package price part cannot be attributed
  * — uncertainty is counted, never double-counted.
+ *
+ * `$notes` preserves provider-side descriptive text (a rate plan, a
+ * VAT note) that is not part of the price identity; it never
+ * participates in dedupe or precedence.
  */
 final readonly class CostFact
 {
@@ -37,5 +41,6 @@ final readonly class CostFact
         public ?CarbonImmutable $renewsAt = null,
         public bool $autoRenew = false,
         public AllocationState $allocationState = AllocationState::Direct,
+        public ?string $notes = null,
     ) {}
 }

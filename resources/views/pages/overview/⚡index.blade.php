@@ -6,6 +6,7 @@ use App\Domain\Costs\Projection\ProjectionResult;
 use App\Domain\Costs\Projection\SpendHistory;
 use App\Domain\Costs\UpcomingRenewalWindow;
 use App\Domain\Costs\UpcomingRenewals;
+use App\Domain\Providers\UsageGaps;
 use App\Domain\Support\ValueObjects\Money;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -65,6 +66,18 @@ new #[Title('Overview')] class extends Component {
     public function upcoming(): UpcomingRenewalWindow
     {
         return app(UpcomingRenewals::class)->within(now());
+    }
+
+    /**
+     * Provider accounts whose metered usage cannot be read — fixed
+     * subscriptions alone, so their slice of the total is incomplete.
+     *
+     * @return list<array{account: string}>
+     */
+    #[Computed]
+    public function usageGaps(): array
+    {
+        return app(UsageGaps::class)->all();
     }
 
     /**
@@ -263,6 +276,12 @@ new #[Title('Overview')] class extends Component {
                     {{ __(':n shared charges are not yet attributed to single services.', ['n' => $this->summary['sharedUnallocatedCount']]) }}
                 </p>
             @endif
+
+            @foreach ($this->usageGaps as $gap)
+                <p class="mt-3 text-sm text-attention" data-test="overview-usage-gap">
+                    {{ __(':account: metered usage is unavailable — only fixed subscriptions are counted.', ['account' => $gap['account']]) }}
+                </p>
+            @endforeach
         </div>
     </div>
 </section>

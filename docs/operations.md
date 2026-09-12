@@ -82,4 +82,6 @@ Create an OVHcloud API application, then delegate the smallest read-only rights:
 - **Renewal reconciliation**: a provider stopping to report a renewal date does not yet end the stored renewal row (one-sided writes are deliberate; reconciliation is a future decision).
 - **Overdue renewals**: the Overview window shows the next 30 days; renewals past their date leave the window and live only on the Renewals page.
 - **FX**: totals are per currency, never converted. A live-FX preview would be a separate view with an explicit, stored rate source.
-- **Cloudflare / Contabo / Hetzner**: no adapters yet (#15–#17, post-v1).
+- **Cloudflare**: adapter shipped (#15) against synthetic fixtures only — the real-account spike (a token with Billing Read and Zone Read) has not run yet, and the subscription payload shape is a documented assumption. Fixed subscriptions are counted at `actual` evidence; metered usage is never included and every Cloudflare run reads partial. No invoice actuals, no usage metering.
+- **Contabo**: no adapter yet (#16, post-v1).
+- **Hetzner**: no adapter yet (#17, post-v1).

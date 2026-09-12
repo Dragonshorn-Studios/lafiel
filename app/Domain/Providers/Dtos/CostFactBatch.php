@@ -18,6 +18,11 @@ final readonly class CostFactBatch
      * @param  list<CostFact>  $facts
      * @param  list<string>  $warnings
      * @param  array<string, BatchCompleteness>  $capabilityCompleteness  keyed by capability value
+     * @param  list<ProviderCapability>  $reportedCapabilities  the capabilities whose
+     *                                                          observation this batch represents — even when it observed none.
+     *                                                          Charge ending is gated per reported capability: a capability
+     *                                                          this batch does not represent (an always-partial usage feed)
+     *                                                          cannot undercut the evidence of one it does
      */
     public function __construct(
         public BatchCompleteness $completeness,
@@ -26,6 +31,7 @@ final readonly class CostFactBatch
         public array $facts,
         public array $warnings = [],
         public array $capabilityCompleteness = [],
+        public array $reportedCapabilities = [],
     ) {
         foreach (array_keys($capabilityCompleteness) as $capability) {
             if (ProviderCapability::tryFrom((string) $capability) === null) {

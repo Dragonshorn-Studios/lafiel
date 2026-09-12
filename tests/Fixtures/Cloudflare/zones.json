@@ -1,0 +1,24 @@
+{
+    "success": true,
+    "errors": [],
+    "messages": [],
+    "result": [
+        {
+            "id": "zone-synthetic-01",
+            "name": "example-synthetic.com",
+            "status": "active"
+        },
+        {
+            "id": "zone-free-synthetic-02",
+            "name": "free-synthetic.org",
+            "status": "active"
+        }
+    ],
+    "result_info": {
+        "page": 1,
+        "per_page": 50,
+        "count": 2,
+        "total_pages": 1,
+        "total_count": 2
+    }
+}

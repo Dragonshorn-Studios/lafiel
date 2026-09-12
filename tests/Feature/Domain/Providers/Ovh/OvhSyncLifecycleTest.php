@@ -6,7 +6,7 @@ use App\Domain\Costs\Models\CostItem;
 use App\Domain\History\Models\CostSnapshot;
 use App\Domain\Inventory\Enums\ServiceLifecycle;
 use App\Domain\Inventory\Models\Service;
-use App\Domain\Providers\Actions\UpdateOvhCredentials;
+use App\Domain\Providers\Actions\UpdateProviderCredentials;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
@@ -229,8 +229,8 @@ it('re-validates credentials after they are replaced', function () {
     ovhSync($account);
     $callsBefore = $api->callCount('/me');
 
-    UpdateOvhCredentials::class;
-    app(UpdateOvhCredentials::class)->update($account, [
+    UpdateProviderCredentials::class;
+    app(UpdateProviderCredentials::class)->update($account, [
         'display_name' => $account->display_name,
         'endpoint' => 'ovh-eu',
         'application_key' => ovhPayload()['application_key'],

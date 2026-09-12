@@ -1,0 +1,39 @@
+{
+    "success": true,
+    "errors": [],
+    "messages": [],
+    "result": [
+        {
+            "id": "sub-free-synthetic-02",
+            "product": {
+                "id": "zone_plan",
+                "name": "Free Plan"
+            },
+            "rate_plan": {
+                "id": "plan-free-synthetic",
+                "public_name": "Free Plan",
+                "currency": "USD",
+                "components": [
+                    {
+                        "name": "Free Plan",
+                        "price": "0.00"
+                    }
+                ]
+            },
+            "frequency": "monthly",
+            "state": "Free",
+            "current_period": {
+                "start": "2026-09-01T00:00:00Z",
+                "end": "2026-10-01T00:00:00Z"
+            },
+            "auto_renew": true
+        }
+    ],
+    "result_info": {
+        "page": 1,
+        "per_page": 50,
+        "count": 1,
+        "total_pages": 1,
+        "total_count": 1
+    }
+}

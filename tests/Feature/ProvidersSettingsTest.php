@@ -1,6 +1,9 @@
 <?php
 
 use App\Domain\Providers\AdapterRegistry;
+use App\Domain\Providers\Cloudflare\BuildCloudflareApi;
+use App\Domain\Providers\Cloudflare\CloudflareApi;
+use App\Domain\Providers\Cloudflare\CloudflareProviderAdapter;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
@@ -25,7 +28,9 @@ beforeEach(function () {
 
 /**
  * Swap the real SDK client builder for one handing out the given fake,
- * so the page can be driven without network access.
+ * so the page can be driven without network access. The adapter
+ * singleton is rebuilt so it picks up the fake seam — boot already
+ * resolved it against the real builder.
  */
 function fakeOvhClient(FakeOvhApi $api): void
 {
@@ -38,6 +43,10 @@ function fakeOvhClient(FakeOvhApi $api): void
             return $this->api;
         }
     });
+
+    app()->forgetInstance(AdapterRegistry::class);
+    app()->forgetInstance(OvhProviderAdapter::class);
+    app(AdapterRegistry::class)->register('ovh', app(OvhProviderAdapter::class));
 }
 
 function providersPage(): Testable
@@ -63,11 +72,12 @@ it('lists connected accounts with their verification state', function () {
 
 it('connects an account through the form without rendering the secret', function () {
     providersPage()
+        ->set('providerKey', 'ovh')
         ->set('displayName', 'OVH main')
-        ->set('endpoint', 'ovh-eu')
-        ->set('applicationKey', ovhPayload()['application_key'])
-        ->set('applicationSecret', ovhPayload()['application_secret'])
-        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
         ->call('connect')
         ->assertHasNoErrors()
         ->assertSee('OVH main');
@@ -89,7 +99,7 @@ it('marks the connection verified when the test succeeds', function () {
 
     providersPage()
         ->call('testConnection', $account->id)
-        ->assertSee(__('The OVH account accepted the credentials.'))
+        ->assertSee(__('The provider accepted the credentials.'))
         ->assertSet('connectionChecks.'.$account->id.'.status', 'connected');
 
     $credential = $account->credentials()->latest('id')->first();
@@ -147,10 +157,10 @@ it('replaces credentials through the edit form', function () {
     providersPage()
         ->call('edit', $account->id)
         ->set('displayName', 'OVH renamed')
-        ->set('endpoint', 'ovh-ca')
-        ->set('applicationKey', ovhPayload()['application_key'])
-        ->set('applicationSecret', ovhPayload()['application_secret'])
-        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->set('credential.endpoint', 'ovh-ca')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
         ->call('update')
         ->assertHasNoErrors();
 
@@ -191,8 +201,6 @@ it('never renders stored credential material back into the page', function () {
 
 it('queues a sync now through the shared entry point', function () {
     $this->freezeTime();
-    $this->app->forgetInstance(AdapterRegistry::class);
-    $this->app->forgetInstance(OvhProviderAdapter::class);
 
     // Credentials that fail validation keep the run offline while still
     // exercising the full shared pipeline.
@@ -200,7 +208,6 @@ it('queues a sync now through the shared entry point', function () {
         new InvalidCredentialsException('OVH rejected the credentials for [/me] (HTTP 401).'),
     ]);
     fakeOvhClient($api);
-    app(AdapterRegistry::class)->register('ovh', app(OvhProviderAdapter::class));
 
     $account = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
 
@@ -230,17 +237,21 @@ it('opens the add-provider slide-over with a clean form', function () {
         ->call('add')
         ->assertSet('panelOpen', true)
         ->assertSet('displayName', '')
-        ->assertSee(__('Connect OVHcloud'));
+        ->assertSet('providerKey', 'cloudflare')
+        ->assertSee(__('Connect :provider', ['provider' => 'Cloudflare']))
+        ->set('providerKey', 'ovh')
+        ->assertSee(__('Connect :provider', ['provider' => 'OVHcloud']));
 });
 
 it('closes the slide-over after connecting an account', function () {
     providersPage()
         ->call('add')
+        ->set('providerKey', 'ovh')
         ->set('displayName', 'OVH main')
-        ->set('endpoint', 'ovh-eu')
-        ->set('applicationKey', ovhPayload()['application_key'])
-        ->set('applicationSecret', ovhPayload()['application_secret'])
-        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
         ->call('connect')
         ->assertHasNoErrors()
         ->assertSet('panelOpen', false);
@@ -255,10 +266,10 @@ it('opens the slide-over when editing credentials and closes it on save', functi
         ->call('edit', $account->id)
         ->assertSet('panelOpen', true)
         ->set('displayName', 'OVH renamed')
-        ->set('endpoint', 'ovh-ca')
-        ->set('applicationKey', ovhPayload()['application_key'])
-        ->set('applicationSecret', ovhPayload()['application_secret'])
-        ->set('consumerKey', ovhPayload()['consumer_key'])
+        ->set('credential.endpoint', 'ovh-ca')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
         ->call('update')
         ->assertHasNoErrors()
         ->assertSet('panelOpen', false);
@@ -268,4 +279,72 @@ it('opens the slide-over when editing credentials and closes it on save', functi
 
 it('shows the nothing-here empty state without accounts', function () {
     providersPage()->assertSee(__('Nothing here'));
+});
+
+it('connects a cloudflare account through the provider select', function () {
+    providersPage()
+        ->set('providerKey', 'cloudflare')
+        ->set('displayName', 'CF main')
+        ->set('credential.api_token', cloudflarePayload()['api_token'])
+        ->call('connect')
+        ->assertHasNoErrors()
+        ->assertSee('CF main');
+
+    $account = ProviderAccount::query()->where('provider_key', 'cloudflare')->sole();
+
+    expect($account->display_name)->toBe('CF main')
+        ->and($account->credentials()->latest('id')->first()->payload)->toBe(cloudflarePayload());
+});
+
+it('tests a cloudflare connection through the adapter seam', function () {
+    $envelope = cloudflareFixture('token-verify.json');
+
+    // Bind the fake seam first, then rebuild the adapter singleton —
+    // boot already resolved it against the real builder.
+    app()->bind(BuildCloudflareApi::class, fn (): BuildCloudflareApi => new class($envelope) extends BuildCloudflareApi
+    {
+        public function __construct(private readonly array $envelope) {}
+
+        public function build(array $payload): CloudflareApi
+        {
+            expect($payload)->toBe(cloudflarePayload());
+
+            return new class($this->envelope) implements CloudflareApi
+            {
+                public function __construct(private readonly array $envelope) {}
+
+                public function get(string $path, array $query = []): array
+                {
+                    expect($path)->toBe('/user/tokens/verify');
+
+                    return $this->envelope;
+                }
+            };
+        }
+    });
+
+    app()->forgetInstance(AdapterRegistry::class);
+    app()->forgetInstance(CloudflareProviderAdapter::class);
+    app(AdapterRegistry::class)->register('cloudflare', app(CloudflareProviderAdapter::class));
+
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(['payload' => cloudflarePayload()]), 'credentials')
+        ->create(['provider_key' => 'cloudflare']);
+
+    providersPage()
+        ->call('testConnection', $account->id)
+        ->assertSet('connectionChecks.'.$account->id.'.status', 'connected');
+
+    expect($account->credentials()->latest('id')->first()->refresh()->verified_at)->not->toBeNull();
+});
+
+it('summarizes a cloudflare account without echoing the token', function () {
+    ProviderAccount::factory()
+        ->has(ProviderCredential::factory(['payload' => cloudflarePayload()]), 'credentials')
+        ->create(['provider_key' => 'cloudflare', 'display_name' => 'CF summary']);
+
+    $html = providersPage()->html();
+
+    expect($html)->toContain('API token')
+        ->not->toContain(cloudflarePayload()['api_token']);
 });

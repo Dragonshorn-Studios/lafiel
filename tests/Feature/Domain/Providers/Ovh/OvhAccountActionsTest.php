@@ -1,9 +1,9 @@
 <?php
 
-use App\Domain\Providers\Actions\ConnectOvhAccount;
+use App\Domain\Providers\Actions\ConnectProviderAccount;
 use App\Domain\Providers\Actions\DeleteProviderAccount;
 use App\Domain\Providers\Actions\SetProviderAccountEnabled;
-use App\Domain\Providers\Actions\UpdateOvhCredentials;
+use App\Domain\Providers\Actions\UpdateProviderCredentials;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
 use Illuminate\Support\Facades\DB;
@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 function connectOvhAccount(array $overrides = []): ProviderAccount
 {
-    return app(ConnectOvhAccount::class)->connect([
+    return app(ConnectProviderAccount::class)->connect('ovh', [
         'display_name' => 'OVH main',
         ...ovhPayload(),
         ...$overrides,
@@ -70,7 +70,7 @@ it('replaces credentials with a new unverified row and keeps the old one', funct
     $old->fingerprint = 'existing-fingerprint';
     $old->save();
 
-    $new = app(UpdateOvhCredentials::class)->update($account, [
+    $new = app(UpdateProviderCredentials::class)->update($account, [
         'display_name' => 'OVH renamed',
         ...ovhPayload(['application_secret' => 'AS-replacement-secret-9999']),
     ]);
