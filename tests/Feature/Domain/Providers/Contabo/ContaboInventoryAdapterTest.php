@@ -138,3 +138,52 @@ it('emits one unknown recurring fact per discovered resource', function () {
         ->and($first->evidenceState)->toBe(EvidenceState::Estimate)
         ->and($first->chargeKind)->toBe(ChargeKind::RecurringFixed);
 });
+
+it('fails the whole inventory when the primary compute listing fails', function () {
+    $api = (new FakeContaboApi)->throwOn('/v1/compute/instances', [
+        new TransientProviderException('Contabo API server error for [/v1/compute/instances] (HTTP 503).'),
+    ]);
+
+    // The compute listing is the primary observation: its failure must
+    // propagate so the run fails and keeps its last good data.
+    expect(fn () => contaboAdapter($api)->fetchInventory(contaboContext()))
+        ->toThrow(TransientProviderException::class);
+});
+
+it('walks paginated compute listings', function () {
+    $pageOne = contaboFixture('compute-instances.json');
+    // Pages are ceil(totalCount / size=100): 102 spans two pages.
+    $pageOne['_metadata'] = ['totalCount' => 102, 'totalPages' => 2, 'currentPage' => 1];
+
+    $api = new FakeContaboApi([
+        '/v1/compute/instances' => fn (array $query): array => ((int) ($query['page'] ?? 1)) === 1
+            ? $pageOne
+            : [
+                'data' => [
+                    ['instanceId' => 100003, 'displayName' => 'cache-synthetic-03', 'productType' => 'v1'],
+                ],
+                '_metadata' => ['totalCount' => 102, 'totalPages' => 2, 'currentPage' => 2],
+            ],
+        '/v1/object-storage/instances' => contaboFixture('object-storage-instances.json'),
+    ]);
+
+    $batch = contaboAdapter($api)->fetchInventory(contaboContext());
+
+    expect(count($batch->items))->toBe(4)
+        ->and($api->callCount('/v1/compute/instances'))->toBe(2);
+});
+
+it('warns instead of silently truncating when the page total is unreadable', function () {
+    $body = contaboFixture('compute-instances.json');
+    unset($body['_metadata']['totalCount']);
+
+    $api = new FakeContaboApi([
+        '/v1/compute/instances' => $body,
+        '/v1/object-storage/instances' => contaboFixture('object-storage-instances.json'),
+    ]);
+
+    $batch = contaboAdapter($api)->fetchInventory(contaboContext());
+
+    expect($batch->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($batch->warnings)->toContain('listing [/v1/compute/instances] gave no readable total count; stopped after page 1.');
+});

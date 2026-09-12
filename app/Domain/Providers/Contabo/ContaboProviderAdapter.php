@@ -71,7 +71,10 @@ final class ContaboProviderAdapter implements ProviderAdapter
         // The compute listing is the primary observation: its failure
         // fails the whole phase (the exception propagates), keeping the
         // last good data — the same rule as OVH's service listing.
-        foreach ($this->collect($api, '/v1/compute/instances', $warnings) as $instance) {
+        [$computeInstances, $computeTruncated] = $this->collect($api, '/v1/compute/instances', $warnings);
+        $partial = $computeTruncated;
+
+        foreach ($computeInstances as $instance) {
             $item = $this->instanceItem($instance);
 
             if ($item === null) {
@@ -85,7 +88,10 @@ final class ContaboProviderAdapter implements ProviderAdapter
         }
 
         try {
-            foreach ($this->collect($api, '/v1/object-storage/instances', $warnings) as $instance) {
+            [$storageInstances, $storageTruncated] = $this->collect($api, '/v1/object-storage/instances', $warnings);
+            $partial = $partial || $storageTruncated;
+
+            foreach ($storageInstances as $instance) {
                 $item = $this->storageItem($instance);
 
                 if ($item === null) {
@@ -198,11 +204,13 @@ final class ContaboProviderAdapter implements ProviderAdapter
      * total from spinning forever.
      *
      * @param  list<string>  $warnings
-     * @return list<array<string, mixed>>
+     * @return array{0: list<array<string, mixed>>, 1: bool} the entries
+     *                                                       plus whether the walk was cut short
      */
     private function collect(ContaboApi $api, string $path, array &$warnings): array
     {
         $items = [];
+        $truncated = false;
         $page = 1;
         $totalPages = 1;
 
@@ -220,17 +228,27 @@ final class ContaboProviderAdapter implements ProviderAdapter
             }
 
             $metadata = is_array($body['_metadata'] ?? null) ? $body['_metadata'] : [];
-            $totalCount = isset($metadata['totalCount']) && is_numeric($metadata['totalCount'])
-                ? (int) $metadata['totalCount']
-                : count($items);
-            $totalPages = (int) ceil($totalCount / self::PER_PAGE);
+
+            if (isset($metadata['totalCount']) && is_numeric($metadata['totalCount'])) {
+                $totalCount = (int) $metadata['totalCount'];
+                $totalPages = (int) ceil($totalCount / self::PER_PAGE);
+            } else {
+                // No readable total: walking on would be a guess. Stop
+                // here, but say so — silent truncation would leave the
+                // batch complete-looking while resources are lost.
+                $totalPages = $page;
+                $truncated = true;
+                $warnings[] = sprintf('listing [%s] gave no readable total count; stopped after page %d.', $path, $page);
+            }
+
             $page++;
         } while ($page <= min($totalPages, self::MAX_PAGES));
 
         if ($totalPages > self::MAX_PAGES) {
             $warnings[] = sprintf('listing [%s] has more than %d pages; the rest was not read.', $path, self::MAX_PAGES);
+            $truncated = true;
         }
 
-        return $items;
+        return [$items, $truncated];
     }
 }

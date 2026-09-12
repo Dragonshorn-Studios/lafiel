@@ -83,3 +83,37 @@ it('maps connection failures to transient failures', function () {
     expect(fn () => (new HttpContaboApi(contaboPayload()['client_id'], contaboPayload()['client_secret']))->get('/v1/compute/instances'))
         ->toThrow(TransientProviderException::class);
 });
+
+it('refreshes an expired token once and returns the retried body', function () {
+    Http::preventStrayRequests();
+
+    Http::fake([
+        'auth.contabo.com/token' => Http::sequence()
+            ->push(['access_token' => 'token-one'])
+            ->push(['access_token' => 'token-two']),
+        'api.contabo.com/*' => Http::sequence()
+            ->push(['data' => ['stale']], 401)
+            ->push(['data' => ['fresh'], '_metadata' => ['totalCount' => 1]]),
+    ]);
+
+    $body = (new HttpContaboApi(contaboPayload()['client_id'], contaboPayload()['client_secret']))->get('/v1/compute/instances');
+
+    expect($body['data'])->toBe(['fresh']);
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'auth.contabo.com')
+        ? $request['client_secret'] === contaboPayload()['client_secret']
+        : $request->hasHeader('Authorization', 'Bearer token-'.(str_contains($request->header('Authorization')[0] ?? '', 'token-one') ? 'one' : 'two'))
+    );
+});
+
+it('maps an unreadable body to a transient failure', function () {
+    Http::preventStrayRequests();
+
+    Http::fake([
+        'auth.contabo.com/token' => Http::response(['access_token' => 'token-value']),
+        'api.contabo.com/*' => Http::response('gateway garbage'),
+    ]);
+
+    expect(fn () => (new HttpContaboApi(contaboPayload()['client_id'], contaboPayload()['client_secret']))->get('/v1/compute/instances'))
+        ->toThrow(TransientProviderException::class);
+});

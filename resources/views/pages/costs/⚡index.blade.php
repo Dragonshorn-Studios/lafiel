@@ -348,13 +348,17 @@ new #[Title('Services')] class extends Component {
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="category" :label="__('Category')" required placeholder="ai, domain, license, saas…" />
-                <flux:select wire:model="coversServiceId" :label="__('Cover an existing service')" :disabled="$editingCostItemId !== null">
-                    <flux:select.option :value="null">{{ __('— new service —') }}</flux:select.option>
-                    @foreach ($this->overlayCandidates as $candidate)
-                        <flux:select.option :value="$candidate->id">{{ $candidate->name }}</flux:select.option>
-                    @endforeach
-                </flux:select>
-            </div>
+                <div>
+                    <flux:select wire:model="coversServiceId" :label="__('Cover an existing service')" :disabled="$editingCostItemId !== null">
+                        <flux:select.option :value="null">{{ __('— new service —') }}</flux:select.option>
+                        @foreach ($this->overlayCandidates as $candidate)
+                            <flux:select.option :value="$candidate->id">{{ $candidate->name }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                    <p class="mt-2 text-xs text-ink-muted">
+                        {{ __('Covering a discovered service counts this price as its answer — the provider’s unknown price stops counting once this charge is open.') }}
+                    </p>
+                </div>            </div>
 
             <div class="grid gap-4 sm:grid-cols-3">
                 <flux:input wire:model="amount" :label="__('Amount')" type="number" step="0.01" :disabled="$unknownAmount" />

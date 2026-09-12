@@ -52,9 +52,22 @@ final class HttpCloudflareApi implements CloudflareApi
 
         // API v4 can answer within 2xx with success:false — an
         // API-level refusal that is neither credentials nor an outage,
-        // so it fails the phase without inviting a retry.
+        // so it fails the phase without inviting a retry. The numeric
+        // error codes are the one piece of the envelope that tells the
+        // user what to fix (a missing scope, mostly); bodies are still
+        // never echoed.
         if (! is_array($envelope) || ($envelope['success'] ?? false) !== true) {
-            throw new ProviderException("Cloudflare API refused the request for [{$path}].");
+            $codes = [];
+
+            foreach (is_array($envelope['errors'] ?? null) ? $envelope['errors'] : [] as $error) {
+                if (is_array($error) && isset($error['code']) && is_numeric($error['code'])) {
+                    $codes[] = (string) (int) $error['code'];
+                }
+            }
+
+            $suffix = $codes === [] ? '' : ' (error codes '.implode(', ', $codes).')';
+
+            throw new ProviderException("Cloudflare API refused the request for [{$path}]{$suffix}.");
         }
 
         return $envelope;

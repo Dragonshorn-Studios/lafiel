@@ -20,6 +20,7 @@ use App\Domain\Providers\Dtos\InventoryBatch;
 use App\Domain\Providers\Dtos\InventoryItem;
 use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Enums\ProviderCapability;
+use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCapabilityState;
@@ -1049,4 +1050,58 @@ it('reports an already active sync instead of queueing another', function () {
     // transaction aborted, so no query may follow it in this test.
     artisan('lafiel:sync')->assertSuccessful()
         ->expectsOutputToContain('already syncing');
+});
+
+it('fails the run and clears verification when the provider rejects credentials mid-cost-phase', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $credential = $account->credentials()->latest('id')->first();
+    expect($credential->refresh()->verified_at)->not->toBeNull();
+
+    $this->travel(1)->hour();
+
+    // A verified credential skips validation, so the rejection must
+    // surface mid-run, during the cost-facts fetch.
+    $adapter->costExceptions = [new InvalidCredentialsException('rejected for [cost] (HTTP 401).')];
+
+    $run = runSync($account, $adapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($credential->refresh()->verified_at)->toBeNull();
+});
+
+it('keeps a stored note when a later observation carries none', function () {
+    $fact = costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'));
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([new CostFact(
+            sourceRef: $fact->sourceRef,
+            serviceExternalIds: $fact->serviceExternalIds,
+            sourceKind: $fact->sourceKind,
+            chargeKind: $fact->chargeKind,
+            period: $fact->period,
+            evidenceState: $fact->evidenceState,
+            amount: $fact->amount,
+            validFrom: $fact->validFrom,
+            renewsAt: $fact->renewsAt,
+            autoRenew: $fact->autoRenew,
+            notes: 'Rate plan: Bundle',
+        )]),
+    );
+    $account = makeAccount($adapter);
+    runSync($account, $adapter);
+
+    $this->travel(1)->hour();
+
+    // The next observation omits the note entirely — that is not the
+    // news that the note is gone.
+    $adapter->costFactBatch = costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]);
+    runSync($account, $adapter);
+
+    expect(CostItem::query()->sole()->notes)->toBe('Rate plan: Bundle');
 });

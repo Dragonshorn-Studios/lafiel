@@ -9,6 +9,7 @@ use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Providers\Ovh\BuildOvhApi;
 use App\Domain\Providers\Ovh\OvhApi;
 use App\Domain\Providers\Ovh\OvhProviderAdapter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Sleep;
 use Tests\Fakes\FakeOvhApi;
 
@@ -89,4 +90,20 @@ it('treats a malformed stored payload as rejected, not transient', function () {
 
     expect(fn () => app(BuildOvhApi::class)->build(['endpoint' => 'ovh-eu']))
         ->toThrow(InvalidCredentialsException::class);
+});
+
+it('turns an unreadable stored payload into a rejected check instead of an error', function () {
+    // No fake needed: the payload must fail decryption before any
+    // provider call happens. A rotated APP_KEY leaves cipher text the
+    // cast cannot decrypt — corrupt the stored row to simulate it.
+    [$account, $credential] = connectionCheckAccount(new FakeOvhApi);
+
+    DB::table('provider_credentials')
+        ->where('id', $credential->id)
+        ->update(['payload' => 'corrupt-cipher-text']);
+
+    $check = app(TestProviderConnection::class)->check($account, $credential->refresh());
+
+    expect($check->status->value)->toBe('rejected')
+        ->and($check->warning)->toBe(__('Stored credentials are unreadable. Replace them and test again.'));
 });

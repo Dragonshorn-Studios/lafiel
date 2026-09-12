@@ -33,9 +33,19 @@ final readonly class CostFactBatch
         public array $capabilityCompleteness = [],
         public array $reportedCapabilities = [],
     ) {
-        foreach (array_keys($capabilityCompleteness) as $capability) {
+        foreach ($capabilityCompleteness as $capability => $completeness) {
             if (ProviderCapability::tryFrom((string) $capability) === null) {
                 throw new \InvalidArgumentException("Unknown capability [{$capability}] in per-capability completeness.");
+            }
+
+            if (! in_array($completeness, BatchCompleteness::cases(), true)) {
+                throw new \InvalidArgumentException("Invalid completeness for capability [{$capability}].");
+            }
+        }
+
+        foreach ($reportedCapabilities as $capability) {
+            if (! in_array($capability, ProviderCapability::cases(), true)) {
+                throw new \InvalidArgumentException('Reported capabilities must be ProviderCapability instances.');
             }
         }
     }
