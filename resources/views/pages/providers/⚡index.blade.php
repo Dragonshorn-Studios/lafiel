@@ -461,24 +461,6 @@ new #[Title('Providers')] class extends Component {
         </div>
     @endif
 
-    {{-- Least-privilege guidance, one card per registered provider. --}}
-    @foreach ($this->schemas->options() as $providerKey => $label)
-        @php($schema = $this->schemas->for($providerKey))
-        <flux:card>
-            <flux:heading size="lg">{{ __('Read-only :provider credentials', ['provider' => $label]) }}</flux:heading>
-
-            <p class="mt-2 text-sm text-ink-secondary">
-                {{ __($schema::help()) }}
-            </p>
-
-            @if ($schema::helpUrl() !== null)
-                <p class="mt-2 text-sm text-ink-secondary">
-                    <a href="{{ $schema::helpUrl() }}" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to create :provider credentials', ['provider' => $label]) }}</a>
-                </p>
-            @endif
-        </flux:card>
-    @endforeach
-
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
     <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
         <flux:heading size="lg" class="mb-2">
@@ -537,5 +519,21 @@ new #[Title('Providers')] class extends Component {
                 <flux:button type="button" wire:click="cancelPanel">{{ __('Cancel') }}</flux:button>
             </div>
         </form>
+
+        {{-- Least-privilege guidance for the selected provider, at the
+             bottom of the panel; it follows the provider select. --}}
+        <div class="mt-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-secondary" data-test="provider-help">
+            <p class="font-medium text-ink">{{ __('Read-only :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}</p>
+
+            <p class="mt-2">
+                {{ __($this->activeSchema::help()) }}
+            </p>
+
+            @if ($this->activeSchema::helpUrl() !== null)
+                <p class="mt-2">
+                    <a href="{{ $this->activeSchema::helpUrl() }}" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to create :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}</a>
+                </p>
+            @endif
+        </div>
     </flux:modal>
 </section>
