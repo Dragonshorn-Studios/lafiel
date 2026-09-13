@@ -64,7 +64,7 @@ Gold means attention or an approaching renewal. Red means an error or destructiv
 - Dense table rows remain 44–48 px tall.
 - No glassmorphism or large gradients.
 
-The recurring motif is a thin segmented “fleet line” with restrained markers in headers and charts. It is abstract telemetry, not a franchise symbol. The wordmark is `Lafiel` or `LAFIEL`; an original four-point navigation star or orbital arc may accompany it.
+The recurring motif is a thin segmented “fleet line” with restrained markers in headers and charts. It is abstract telemetry, not a franchise symbol. The wordmark is `Lafiel` or `LAFIEL`, accompanied by the brand roundel (`public/favicon.svg` — gold four-point star on the navy roundel, shared with the favicon and every `<x-app-logo-icon>` usage); charts and line motifs keep the abstract fleet line instead of the star.
 
 ## Application shell
 
