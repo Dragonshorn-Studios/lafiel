@@ -9,12 +9,9 @@
         {{-- --- Command rail (desktop) --- --}}
         <aside class="fixed inset-y-0 start-0 z-40 hidden w-60 flex-col bg-command text-on-command lg:flex">
             <div class="flex items-center gap-3 px-6 pt-6 pb-8">
-                <span class="flex size-9 items-center justify-center rounded-card border border-attention/70 text-attention">
-                    {{-- Original four-point navigation star (docs/design-system.md). --}}
-                    <svg viewBox="0 0 24 24" class="size-5" fill="currentColor" aria-hidden="true">
-                        <path d="M12 2c.6 4.9 2.6 7.4 8 8-5.4.6-7.4 3.1-8 8-.6-4.9-2.6-7.4-8-8 5.4-.6 7.4-3.1 8-8Z" />
-                    </svg>
-                </span>
+                {{-- The lafiel brand roundel (docs/design-system.md) — same
+                     cached asset as the favicon. --}}
+                <x-app-logo-icon class="size-9 shrink-0" />
                 <span class="font-serif text-2xl leading-none tracking-wide">Lafiel</span>
             </div>
 
@@ -103,11 +100,7 @@
                 <div class="flex h-14 items-center gap-3 px-4 sm:px-6">
                     {{-- Brand: in flow on mobile (the rail wordmark covers desktop) --}}
                     <div class="flex items-center gap-2 lg:hidden">
-                        <span class="text-attention">
-                            <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true">
-                                <path d="M12 2c.6 4.9 2.6 7.4 8 8-5.4.6-7.4 3.1-8 8-.6-4.9-2.6-7.4-8-8 5.4-.6 7.4-3.1 8-8Z" />
-                            </svg>
-                        </span>
+                        <x-app-logo-icon class="size-5" />
                         <span class="font-serif text-lg leading-none tracking-wide">Lafiel</span>
                     </div>
 
