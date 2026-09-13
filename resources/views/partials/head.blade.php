@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <title>
-    {{ filled($title ?? null) ? $title.' - '.config('app.name', 'Laravel') : config('app.name', 'Laravel') }}
+    {{ filled($title ?? null) ? $title.' - '.config('app.name', 'Lafiel') : config('app.name', 'Lafiel') }}
 </title>
 
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">

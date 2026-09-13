@@ -3,13 +3,13 @@
 ])
 
 @if($sidebar)
-    <flux:sidebar.brand :name="config('app.name', 'Laravel')" {{ $attributes }}>
+    <flux:sidebar.brand :name="config('app.name', 'Lafiel')" {{ $attributes }}>
         <x-slot name="logo">
             <x-app-logo-icon class="size-8" />
         </x-slot>
     </flux:sidebar.brand>
 @else
-    <flux:brand :name="config('app.name', 'Laravel')" {{ $attributes }}>
+    <flux:brand :name="config('app.name', 'Lafiel')" {{ $attributes }}>
         <x-slot name="logo">
             <x-app-logo-icon class="size-8" />
         </x-slot>
