@@ -176,6 +176,8 @@ final class OvhProviderAdapter implements ProviderAdapter
 
         // Sibling services can carry identical copies of one strategy
         // payload; the covered-set reference dedupes them to one fact.
+        // The value is a fingerprint of the labels that would price it.
+        /** @var array<string, string> $emittedRefs */
         $emittedRefs = [];
 
         foreach ($inventory->items as $item) {
@@ -199,12 +201,21 @@ final class OvhProviderAdapter implements ProviderAdapter
             [$coveredIds, $selectedLabels, $period, $autoRenew, $usable] = $this->strategy($renew, $item, $inventoryIds, $warnings);
 
             $sourceRef = 'ovh:renew:'.implode('+', $coveredIds);
+            $fingerprint = $this->strategyFingerprint($selectedLabels, $usable);
 
             if (isset($emittedRefs[$sourceRef])) {
+                // Same covered set from a sibling /renew: keep the first
+                // observation. A later payload that would price the
+                // fact differently is a silent merge unless we warn.
+                if ($emittedRefs[$sourceRef] !== $fingerprint) {
+                    $degraded = true;
+                    $warnings[] = "renewal strategy for [{$item->externalId}] disagrees with the already recorded strategy covering the same services; the first observation is kept.";
+                }
+
                 continue;
             }
 
-            $emittedRefs[$sourceRef] = true;
+            $emittedRefs[$sourceRef] = $fingerprint;
 
             $amount = null;
             $taxBasis = TaxBasis::Unknown;
@@ -410,11 +421,14 @@ final class OvhProviderAdapter implements ProviderAdapter
 
     /**
      * The renewal strategy for one inventory item: the covered
-     * inventory ids, the selected price labels, the renewal period,
-     * and the auto-renew flag. Every inventoried service gets a
-     * strategy — an odd or empty payload yields a single-service
-     * unknown fallback — so a service still in inventory always has a
-     * reported charge and its absence can never read as cancellation.
+     * inventory ids, the selected price labels of those covered
+     * services (plus options), the renewal period, and the auto-renew
+     * flag. Entries outside this run's inventory are not linked and
+     * do not contribute a selectedPrice. Every inventoried service
+     * gets a strategy — an odd or empty payload yields a
+     * single-service unknown fallback — so a service still in
+     * inventory always has a reported charge and its absence can
+     * never read as cancellation.
      *
      * @param  array<string, mixed>  $renew
      * @param  list<string>  $inventoryIds
@@ -444,12 +458,16 @@ final class OvhProviderAdapter implements ProviderAdapter
 
             if (in_array($serviceId, $inventoryIds, true)) {
                 $covered[] = $serviceId;
+
+                // Outside-inventory entries never speak for the fact —
+                // not even through their selectedPrice. Including that
+                // label would inflate the amount of a charge whose
+                // coverage excludes the foreign service.
+                if (is_string($entry['selectedPrice'] ?? null) && $entry['selectedPrice'] !== '') {
+                    $labels[] = $entry['selectedPrice'];
+                }
             } else {
                 $warnings[] = "renewal strategy for [{$item->externalId}] covers [{$serviceId}], which is outside this run's inventory; it is not linked.";
-            }
-
-            if (is_string($entry['selectedPrice'] ?? null) && $entry['selectedPrice'] !== '') {
-                $labels[] = $entry['selectedPrice'];
             }
         }
 
@@ -484,6 +502,21 @@ final class OvhProviderAdapter implements ProviderAdapter
             $this->autoRenewOf($renew, $covered),
             true,
         ];
+    }
+
+    /**
+     * A stable identity of what a strategy would contribute to the
+     * fact, so two sibling /renew payloads covering the same services
+     * can be compared. Label order is not significant.
+     *
+     * @param  list<string>  $selectedLabels
+     */
+    private function strategyFingerprint(array $selectedLabels, bool $usable): string
+    {
+        $labels = $selectedLabels;
+        sort($labels);
+
+        return implode("\n", [...$labels, $usable ? 'usable' : 'unusable']);
     }
 
     /**

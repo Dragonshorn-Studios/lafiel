@@ -240,6 +240,69 @@ it('links only covered services and reads the period from them', function () {
         ->and($costs->warnings)->toContain('renewal strategy for [400010001] covers [999999999], which is outside this run\'s inventory; it is not linked.');
 });
 
+it('does not add a foreign service price into the covered strategy', function () {
+    $api = ovhServicesFake();
+
+    // A distinct selectedPrice on an outside-inventory entry must not
+    // inflate the fact whose coverage excludes that service.
+    $vpsRenew = &$api->responses['/service/400010001/renew'];
+    array_unshift($vpsRenew['services'], [
+        'serviceId' => 999999999,
+        'serviceName' => 'foreign-synthetic-01',
+        'selectedPrice' => 'foreign-addon-2025 P1M',
+        'renew' => ['automatic' => false, 'period' => 'P1M'],
+    ]);
+    $vpsRenew['prices'][] = [
+        'label' => 'foreign-addon-2025 P1M',
+        'duration' => 'P1M',
+        'price' => ['currencyCode' => 'EUR', 'text' => '50.00', 'value' => 50.0],
+        'priceInUtv' => 5000,
+        'tax' => ['mode' => 'vat-excluded'],
+    ];
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $combined = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010001+400010005');
+
+    expect($combined->amount?->amountMinor)->toBe(900)
+        ->and($costs->warnings)->toContain('renewal strategy for [400010001] covers [999999999], which is outside this run\'s inventory; it is not linked.');
+});
+
+it('warns when sibling renew payloads disagree on the same covered set', function () {
+    $api = ovhServicesFake();
+
+    // 400010001 is listed first, so its 9.00 quote is the observation
+    // that must be kept. The failover sibling selects a different
+    // extra label and would otherwise silently replace or inflate it.
+    $failover = &$api->responses['/service/400010005/renew'];
+    $failover['services'][0]['selectedPrice'] = 'foreign-addon-2025 P1M';
+    $failover['prices'][] = [
+        'label' => 'foreign-addon-2025 P1M',
+        'duration' => 'P1M',
+        'price' => ['currencyCode' => 'EUR', 'text' => '50.00', 'value' => 50.0],
+        'priceInUtv' => 5000,
+        'tax' => ['mode' => 'vat-excluded'],
+    ];
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $combined = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010001+400010005');
+
+    expect($combined->amount?->amountMinor)->toBe(900)
+        ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($costs->warnings)->toContain('renewal strategy for [400010005] disagrees with the already recorded strategy covering the same services; the first observation is kept.');
+});
+
 it('refuses to sum strategy prices from different duration buckets', function () {
     $api = ovhServicesFake();
 

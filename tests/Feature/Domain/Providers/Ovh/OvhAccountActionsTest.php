@@ -1,11 +1,16 @@
 <?php
 
+use App\Domain\Costs\Enums\SourceKind;
+use App\Domain\Costs\Models\CostItem;
+use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\Actions\ConnectProviderAccount;
 use App\Domain\Providers\Actions\DeleteProviderAccount;
 use App\Domain\Providers\Actions\SetProviderAccountEnabled;
 use App\Domain\Providers\Actions\UpdateProviderCredentials;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
+use App\Domain\Sync\Enums\SyncStatus;
+use App\Domain\Sync\Models\SyncRun;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -96,13 +101,52 @@ it('enables and disables an account in place', function () {
     expect($account->refresh()->enabled)->toBeTrue();
 });
 
-it('deletes the account and cascades credentials, services, and runs', function () {
+it('deletes the account and wipes credentials, services, charges, and runs', function () {
     $account = ProviderAccount::factory()
         ->has(ProviderCredential::factory()->count(2), 'credentials')
         ->create(['provider_key' => 'ovh']);
+    $service = Service::factory()->discovered($account)->create();
+    CostItem::factory()->create([
+        'logical_charge_key' => sprintf('ovh:account:%d:charge:ovh:renew:400010001', $account->id),
+        'source_kind' => SourceKind::RenewalQuote,
+        'amount_minor' => 900,
+        'currency' => 'EUR',
+    ])->services()->attach($service->id);
+    $manual = Service::factory()->create(['name' => 'hand-entered']);
+    CostItem::factory()->create([
+        'logical_charge_key' => 'manual:charge:independent',
+        'amount_minor' => 1200,
+        'currency' => 'PLN',
+    ])->services()->attach($manual->id);
+    SyncRun::factory()->create([
+        'provider_account_id' => $account->id,
+        'status' => SyncStatus::Succeeded,
+    ]);
 
-    app(DeleteProviderAccount::class)->delete($account);
+    $deleted = app(DeleteProviderAccount::class)->delete($account);
 
-    expect(ProviderAccount::query()->find($account->id))->toBeNull()
-        ->and(DB::table('provider_credentials')->where('provider_account_id', $account->id)->count())->toBe(0);
+    expect($deleted)->toBeTrue()
+        ->and(ProviderAccount::query()->find($account->id))->toBeNull()
+        ->and(DB::table('provider_credentials')->where('provider_account_id', $account->id)->count())->toBe(0)
+        ->and(Service::query()->whereKey($service->id)->exists())->toBeFalse()
+        ->and(CostItem::query()->where('logical_charge_key', 'like', 'ovh:account:'.$account->id.':charge:%')->count())->toBe(0)
+        ->and(Service::query()->whereKey($manual->id)->exists())->toBeTrue()
+        ->and(CostItem::query()->where('logical_charge_key', 'manual:charge:independent')->exists())->toBeTrue();
+});
+
+it('refuses to disconnect while a sync is still running', function () {
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'ovh']);
+    SyncRun::factory()->create([
+        'provider_account_id' => $account->id,
+        'status' => SyncStatus::Running,
+        'started_at' => now(),
+    ]);
+
+    $deleted = app(DeleteProviderAccount::class)->delete($account);
+
+    expect($deleted)->toBeFalse()
+        ->and(ProviderAccount::query()->find($account->id))->not->toBeNull()
+        ->and($account->refresh()->credentials)->toHaveCount(1);
 });

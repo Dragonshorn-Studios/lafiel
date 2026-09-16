@@ -16,7 +16,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 /**
  * A canonical service. Provider-discovered services are unique by
  * (provider_account_id, external_id); manual services have neither.
- * Records are never hard-deleted.
+ * Records are never hard-deleted by inventory lifecycle. Disconnect
+ * and Clear synced data are operator resets that remove discovered
+ * services for that account.
  *
  * @property int $id
  * @property int|null $provider_account_id

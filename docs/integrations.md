@@ -54,6 +54,8 @@ The numeric OVH `serviceId` is the canonical inventory identity; the technical s
 
 - A renewal strategy from `/service/{serviceId}/renew` is a quote/estimate, never an invoice actual.
 - A strategy covering multiple services is one cost item related to all covered services; the strategy price is never duplicated per service (`shared_unallocated`).
+- A strategy entry pointing at a serviceId outside this run's inventory is not linked and does not contribute its selected price to the fact.
+- Sibling `/renew` payloads that cover the same inventoried services emit one fact; a later payload that would price the fact differently warns, degrades the run, and keeps the first observation.
 - If the strategy's price choice is ambiguous, the price stays unknown with a warning — it is never guessed.
 - The public formatted catalog is a fallback estimate only, marked as such in the charge notes, and is requested for the account's own subsidiary and checked against its currency (both read from `/me`). A missing or ambiguous catalog match warns and degrades the run.
 - Public Cloud projects are never catalog-priced: their real cost comes from resources and usage, which is a separate unsupported capability. A project's price is an explicit unknown plus a standing warning.

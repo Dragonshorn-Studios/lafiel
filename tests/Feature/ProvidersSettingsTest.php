@@ -1,5 +1,7 @@
 <?php
 
+use App\Domain\Costs\Models\CostItem;
+use App\Domain\Inventory\Models\Service;
 use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Cloudflare\BuildCloudflareApi;
 use App\Domain\Providers\Cloudflare\CloudflareApi;
@@ -184,6 +186,45 @@ it('toggles sync and disconnects with cascade', function () {
 
     expect(ProviderAccount::query()->find($account->id))->toBeNull()
         ->and(DB::table('provider_credentials')->where('provider_account_id', $account->id)->count())->toBe(0);
+});
+
+it('clears synced data from the providers page without disconnecting', function () {
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'ovh', 'display_name' => 'OVH wipe']);
+    $service = Service::factory()->discovered($account)->create();
+    CostItem::factory()->create([
+        'logical_charge_key' => sprintf('ovh:account:%d:charge:ovh:renew:400010001', $account->id),
+        'amount_minor' => 900,
+        'currency' => 'EUR',
+    ])->services()->attach($service->id);
+
+    providersPage()
+        ->assertSee(__('Clear synced data'))
+        ->call('clearSyncedData', $account->id)
+        ->assertSee('OVH wipe');
+
+    expect(ProviderAccount::query()->find($account->id))->not->toBeNull()
+        ->and($account->refresh()->credentials)->toHaveCount(1)
+        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(0)
+        ->and(CostItem::query()->where('logical_charge_key', 'like', 'ovh:account:'.$account->id.':charge:%')->count())->toBe(0);
+});
+
+it('refuses to clear synced data while a sync is running', function () {
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'ovh']);
+    SyncRun::factory()->create([
+        'provider_account_id' => $account->id,
+        'status' => SyncStatus::Running,
+        'started_at' => now(),
+    ]);
+    $service = Service::factory()->discovered($account)->create();
+
+    providersPage()->call('clearSyncedData', $account->id);
+
+    expect(Service::query()->whereKey($service->id)->exists())->toBeTrue()
+        ->and($account->refresh()->credentials)->toHaveCount(1);
 });
 
 it('never renders stored credential material back into the page', function () {
