@@ -306,17 +306,16 @@ it('is written automatically after a manual cost is created', function () {
 });
 
 it('is written by a successful provider sync and deduped by the next', function () {
-    $names = ovhFixture('service-run-a.json');
+    $services = ovhFixture('services-run-a.json');
     $responses = [
         '/me' => ovhFixture('me.json'),
-        '/service' => $names,
+        '/services' => $services,
         '/order/catalog/formatted/vps' => ovhFixture('catalog/vps-eu.json'),
-        '/order/catalog/formatted/cloud' => ovhFixture('catalog/cloud-eu.json'),
         '/order/catalog/formatted/domain' => ovhFixture('catalog/domain-eu.json'),
         '/order/catalog/formatted/ip' => ovhFixture('catalog/ip-eu.json'),
     ];
-    foreach ($names as $name) {
-        $responses['/service/'.$name] = ovhFixture('service/'.$name.'.json');
+    foreach ($services as $service) {
+        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
     }
 
     $api = new FakeOvhApi($responses);
@@ -338,7 +337,7 @@ it('is written by a successful provider sync and deduped by the next', function 
 
     app(SyncOrchestrator::class)->run(queueOvhSnapshotRun($account));
     expect(CostSnapshot::query()->count())->toBe(1)
-        ->and(CostSnapshot::query()->sole()->completeness['priced'])->toBe(2);
+        ->and(CostSnapshot::query()->sole()->completeness['priced'])->toBe(3);
 
     // An identical re-run must add no noise.
     app(SyncOrchestrator::class)->run(queueOvhSnapshotRun($account));

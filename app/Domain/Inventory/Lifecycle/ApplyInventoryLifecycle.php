@@ -31,14 +31,18 @@ final class ApplyInventoryLifecycle
             $batch->items,
         );
 
-        /** @var Collection<string, Service> $services */
+        /** @var Collection<int, Service> $services */
         $services = Service::query()
             ->where('provider_account_id', $account->id)
             ->whereNotNull('external_id')
-            ->get()
-            ->keyBy('external_id');
+            ->get();
 
-        foreach ($services as $externalId => $service) {
+        foreach ($services as $service) {
+            // Compare the attribute, not a collection key: PHP casts
+            // numeric-string array keys to ints, and a strict match
+            // against a numeric id like OVH's serviceId would never hit.
+            $externalId = (string) $service->external_id;
+
             if (in_array($externalId, $presentIds, true)) {
                 $service->last_seen_at = $batch->observedAt;
                 $service->lifecycle_state = ServiceLifecycle::Active;

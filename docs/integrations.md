@@ -40,30 +40,37 @@ Manual is the zero-provider and a first-class path. It covers SaaS, domains, AI 
 
 Fields: vendor/provider, name, category, known/unknown amount, currency, period, next renewal, auto-renew, optional start/end, URL, and notes. A price change preserves history. Ending a record removes it from future spend while keeping historical evidence.
 
-## OVHcloud — v1
+## OVHcloud — v1.1
 
 ### Capabilities
 
-- inventory: required;
-- renewal quotes: required where available;
-- usage and invoice actuals: not promised in v1.
+- inventory: required, discovered through the common Services API (`GET /services`);
+- renewal quotes: required where available, read from `GET /service/{serviceId}/renew`;
+- usage and invoice actuals: not implemented yet — Public Cloud resource usage is the main gap and is reported as unsupported, never as a known zero.
 
-Start discovery from the common Service API, but isolate endpoint/version details inside the adapter. Inventory identity, renewal strategy, and price parts are separate source concepts.
+The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and the product route are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id. Provider lifecycle fields live in `services.metadata`, a column owned by the provider adapter and overwritten wholesale on every sync; nothing else may shape it.
+
+### Renewal quotes and pricing sources
+
+- A renewal strategy from `/service/{serviceId}/renew` is a quote/estimate, never an invoice actual.
+- A strategy covering multiple services is one cost item related to all covered services; the strategy price is never duplicated per service (`shared_unallocated`).
+- If the strategy's price choice is ambiguous, the price stays unknown with a warning — it is never guessed.
+- The public formatted catalog is a fallback estimate only, marked as such in the charge notes, and is requested for the account's own subsidiary and checked against its currency (both read from `/me`). A missing or ambiguous catalog match warns and degrades the run.
+- Public Cloud projects are never catalog-priced: their real cost comes from resources and usage, which is a separate unsupported capability. A project's price is an explicit unknown plus a standing warning.
+- The next-billing date is deliberately not derived from `renew.deleteAt`; no renewal rows are written until a reliable date source exists (see `docs/operations.md`).
 
 ### Credentials
 
-Use the smallest read-only rights, provide a connection test, encrypt at rest, and redact logs. No OVH mutating endpoint belongs in Lafiel.
+Use the smallest read-only rights, provide a connection test, encrypt at rest, and redact logs. No OVH mutating endpoint belongs in Lafiel, and the adapter client can only express GET. Minimum delegated rights — GET on:
 
-### Mapping rules
-
-- Preserve external ID, provider type, source endpoint/reference, observation time, source amount/currency, billing period, and renewal date.
-- Treat renewal offers as quote/estimate, never invoice actual.
-- A renewal strategy may cover multiple services. Create one cost item per logical strategy/price part and relate it to all covered services; never duplicate the full price per service.
-- If allocation cannot be determined, use `shared_unallocated` or unknown/ambiguous state rather than double-counting.
+- `/me` (identity: subsidiary, currency, connection test);
+- `/services` and `/service/*` (inventory, renewal strategies);
+- `/order/catalog/formatted/*` (fallback pricing);
+- `/me/bill*` (invoice history, reserved for the billing sync).
 
 ### Required real-account spike
 
-With read-only access, establish service counts, priced versus unknown records, renewal coverage, tax-basis availability, stable identifiers, pagination, rate limits, and unsupported cases. If tax basis is unclear, store `tax_basis=unknown`. Produce only redacted fixtures.
+With read-only access, establish service counts, priced versus unknown records, renewal coverage, tax-basis availability, stable identifiers, pagination, rate limits, and unsupported cases. If tax basis is unclear, store `tax_basis=unknown`. Produce only redacted fixtures. The fixtures under `tests/Fixtures/Ovh/` are synthetic shapes from the public docs and must be confirmed by this spike.
 
 Reference: [OVH API rights delegation](https://help.ovhcloud.com/csm/de-api-api-rights-delegation?id=kb_article_view&sysparm_article=KB0068603).
 

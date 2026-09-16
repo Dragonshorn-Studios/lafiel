@@ -17,17 +17,21 @@ it('ships only parseable JSON fixtures', function () {
     expect(true)->toBeTrue();
 });
 
-it('covers the three required cases without secret material', function () {
-    $runA = ovhFixture('service-run-a.json');
-    $runB = ovhFixture('service-run-b.json');
+it('covers the required cases without secret material', function () {
+    $runA = ovhFixture('services-run-a.json');
+    $runB = ovhFixture('services-run-b.json');
+    $idsOf = fn (array $run): array => array_column($run, 'serviceId');
 
     // Missing on the next complete run: present in run A, absent in run B.
-    expect($runA)->toContain('ip-synthetic-01')
-        ->and($runB)->not->toContain('ip-synthetic-01');
+    expect($idsOf($runA))->toContain(400010004)
+        ->and($idsOf($runB))->not->toContain(400010004);
 
-    // Ordinary priced service + unknown price case exist as service captures.
-    expect(file_exists(ovhFixtureDir().'/service/vps-synthetic-01.json'))->toBeTrue()
-        ->and(file_exists(ovhFixtureDir().'/service/domain-zone-synthetic-01.json'))->toBeTrue();
+    // A multi-service renewal strategy and a renew payload without a
+    // selected price (Public Cloud gap + catalog fallback) exist.
+    expect(count(ovhFixture('service-renew/400010001.json')['services']))->toBe(2)
+        ->and(count(ovhFixture('service-renew/400010001.json')['prices']))->toBe(2)
+        ->and(ovhFixture('service-renew/400010003.json')['prices'])->toBe([])
+        ->and(ovhFixture('service-renew/400010004.json')['prices'])->toBe([]);
 });
 
 it('carries no credential-shaped value anywhere', function () {

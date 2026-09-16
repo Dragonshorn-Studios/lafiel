@@ -36,23 +36,23 @@ beforeEach(function () {
 // ---------------------------------------------------------------------------
 
 /**
- * The fixture payload for one complete run: a service listing plus one
- * metadata capture per listed service (and the /me identity).
+ * The fixture payload for one complete run: the /services listing, one
+ * renewal strategy per listed service, the fallback catalogs, and the
+ * /me identity.
  */
-function ovhRunPayload(string $listing = 'service-run-a.json'): array
+function ovhRunPayload(string $listing = 'services-run-a.json'): array
 {
-    $names = ovhFixture($listing);
+    $services = ovhFixture($listing);
     $responses = [
         '/me' => ovhFixture('me.json'),
-        '/service' => $names,
+        '/services' => $services,
         '/order/catalog/formatted/vps' => ovhFixture('catalog/vps-eu.json'),
-        '/order/catalog/formatted/cloud' => ovhFixture('catalog/cloud-eu.json'),
         '/order/catalog/formatted/domain' => ovhFixture('catalog/domain-eu.json'),
         '/order/catalog/formatted/ip' => ovhFixture('catalog/ip-eu.json'),
     ];
 
-    foreach ($names as $name) {
-        $responses['/service/'.$name] = ovhFixture('service/'.$name.'.json');
+    foreach ($services as $service) {
+        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
     }
 
     return $responses;
@@ -117,14 +117,15 @@ it('creates every discovered service on the first complete run', function () {
     $run = ovhSync($account);
 
     expect($run->refresh()->status)->toBe(SyncStatus::Succeeded)
-        ->and($run->counts['inventory'])->toBe(['seen' => 4, 'created' => 4, 'updated' => 0])
-        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(4);
+        ->and($run->counts['inventory'])->toBe(['seen' => 5, 'created' => 5, 'updated' => 0])
+        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(5);
 
-    $vps = Service::query()->where('external_id', 'vps-synthetic-01')->sole();
+    $vps = Service::query()->where('external_id', '400010001')->sole();
 
     expect($vps->category)->toBe('compute')
         ->and($vps->provider_type)->toBe('vps')
         ->and($vps->lifecycle_state)->toBe(ServiceLifecycle::Active)
+        ->and($vps->metadata['offer'])->toBe('vps-essentials-2025')
         ->and($vps->first_seen_at?->toDateTimeString())->toBe(now()->toDateTimeString())
         ->and($vps->last_seen_at?->toDateTimeString())->toBe(now()->toDateTimeString());
 });
@@ -142,8 +143,8 @@ it('is idempotent: re-running the same inventory changes nothing', function () {
     $second = ovhSync($account);
 
     expect($second->refresh()->status)->toBe(SyncStatus::Succeeded)
-        ->and($second->counts['inventory'])->toBe(['seen' => 4, 'created' => 0, 'updated' => 0])
-        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(4);
+        ->and($second->counts['inventory'])->toBe(['seen' => 5, 'created' => 0, 'updated' => 0])
+        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(5);
 
     $after = Service::query()
         ->where('provider_account_id', $account->id)
@@ -160,12 +161,12 @@ it('walks a service omitted from complete runs to missing and then inactive', fu
     $account = ovhAccount();
 
     ovhSync($account);
-    $ip = Service::query()->where('external_id', 'ip-synthetic-01')->sole();
+    $ip = Service::query()->where('external_id', '400010004')->sole();
     expect($ip->lifecycle_state)->toBe(ServiceLifecycle::Active)
         ->and($ip->missing_complete_runs)->toBe(0);
 
     $this->travel(1)->day();
-    $api->responses = ovhRunPayload('service-run-b.json');
+    $api->responses = ovhRunPayload('services-run-b.json');
     ovhSync($account);
     expect($ip->refresh()->lifecycle_state)->toBe(ServiceLifecycle::Missing)
         ->and($ip->missing_complete_runs)->toBe(1);
@@ -187,18 +188,16 @@ it('never marks a service missing from a partial inventory', function () {
     $account = ovhAccount();
     ovhSync($account);
 
-    // Run B lists the cloud project but its metadata fetch fails: the
-    // run is partial, so nothing absent may be treated as gone.
-    $api->responses = ovhRunPayload('service-run-b.json');
-    $api->throwOn('/service/cloud-project-synthetic-01', [
-        new TransientProviderException('OVH API server error for [/service/cloud-project-synthetic-01] (HTTP 503).'),
-    ]);
+    // Run B lists four services but carries a malformed fifth entry:
+    // the inventory is partial, so nothing absent may be treated as gone.
+    $api->responses = ovhRunPayload('services-run-b.json');
+    $api->responses['/services'][] = ['serviceName' => 'no-service-id'];
 
     $run = ovhSync($account);
 
-    $ip = Service::query()->where('external_id', 'ip-synthetic-01')->sole();
+    $ip = Service::query()->where('external_id', '400010004')->sole();
     $ipCharge = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $account->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $account->id))
         ->sole();
 
     expect($run->refresh()->status)->toBe(SyncStatus::Partial)
@@ -219,7 +218,9 @@ it('never re-validates credentials that are verified and unchanged', function ()
 
     ovhSync($account);
 
-    expect($api->callCount('/me'))->toBe($callsAfterFirst);
+    // One /me per run is the renewal phase's identity read; validation
+    // is the call that must not repeat.
+    expect($api->callCount('/me'))->toBe($callsAfterFirst + 1);
 });
 
 it('re-validates credentials after they are replaced', function () {
@@ -240,7 +241,8 @@ it('re-validates credentials after they are replaced', function () {
 
     ovhSync($account);
 
-    expect($api->callCount('/me'))->toBe($callsBefore + 1);
+    // Replacement re-validation plus the run's own identity read.
+    expect($api->callCount('/me'))->toBe($callsBefore + 2);
 });
 
 it('clears a verified credential when the provider rejects it mid-run', function () {
@@ -253,8 +255,8 @@ it('clears a verified credential when the provider rejects it mid-run', function
 
     // The verified credential skips validation, so the rejection must
     // surface mid-run, during the inventory fetch.
-    $api->throwOn('/service', [
-        new InvalidCredentialsException('OVH rejected the credentials for [/service] (HTTP 401).'),
+    $api->throwOn('/services', [
+        new InvalidCredentialsException('OVH rejected the credentials for [/services] (HTTP 401).'),
     ]);
 
     $run = ovhSync($account);
@@ -267,7 +269,7 @@ it('scopes services and charges to their own account', function () {
     $api = ovhStack();
     $accountA = ovhAccount();
 
-    // A second account with the same external service names.
+    // A second account with the same external service ids.
     $accountB = ProviderAccount::factory()->create(['provider_key' => 'ovh']);
     ProviderCredential::factory()->create([
         'provider_account_id' => $accountB->id,
@@ -278,22 +280,22 @@ it('scopes services and charges to their own account', function () {
     ovhSync($accountB);
 
     foreach ([$accountA, $accountB] as $account) {
-        expect(Service::query()->where('provider_account_id', $account->id)->count())->toBe(4)
+        expect(Service::query()->where('provider_account_id', $account->id)->count())->toBe(5)
             ->and(CostItem::query()
                 ->where('logical_charge_key', 'like', "ovh:account:{$account->id}:charge:%")
                 ->count())->toBe(4);
     }
 
     // Run B omits the IP block for account A only.
-    $api->responses = ovhRunPayload('service-run-b.json');
+    $api->responses = ovhRunPayload('services-run-b.json');
     $this->travel(1)->day();
     ovhSync($accountA);
 
     $chargeA = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $accountA->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $accountA->id))
         ->sole();
     $chargeB = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renewal:ip-synthetic-01', $accountB->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $accountB->id))
         ->sole();
 
     expect($chargeA->refresh()->valid_to)->not->toBeNull()
@@ -306,19 +308,19 @@ it('keeps last good data when the listing fails and the capability goes stale', 
     ovhSync($account);
 
     $api->responses = ['/me' => ovhFixture('me.json')];
-    $api->throwOn('/service', array_fill(
+    $api->throwOn('/services', array_fill(
         0,
         (int) config('sync.retry.max_attempts'),
-        new TransientProviderException('OVH rate limit reached for [/service] (HTTP 429).'),
+        new TransientProviderException('OVH rate limit reached for [/services] (HTTP 429).'),
     ));
 
     $run = ovhSync($account);
 
-    $ip = Service::query()->where('external_id', 'ip-synthetic-01')->sole();
+    $ip = Service::query()->where('external_id', '400010004')->sole();
 
     expect($run->refresh()->status)->toBe(SyncStatus::Failed)
         ->and($ip->lifecycle_state)->toBe(ServiceLifecycle::Active)
-        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(4);
+        ->and(Service::query()->where('provider_account_id', $account->id)->count())->toBe(5);
 
     $inventory = ProviderCapabilityState::query()
         ->where('provider_account_id', $account->id)
@@ -352,11 +354,11 @@ it('captures a snapshot after a partial sync but writes nothing when a run fails
     $api = ovhStack();
     $account = ovhAccount();
 
-    // Partial inventory: cloud metadata fails, so the run is partial and
-    // a snapshot is still captured (the inputs moved).
-    $api->responses = ovhRunPayload('service-run-a.json');
-    $api->throwOn('/service/cloud-project-synthetic-01', [
-        new TransientProviderException('OVH API server error for [/service/cloud-project-synthetic-01] (HTTP 503).'),
+    // Partial cost phase: the cloud project's strategy fetch fails, so
+    // the run is partial and a snapshot is still captured (the inputs
+    // moved).
+    $api->throwOn('/service/400010003/renew', [
+        new TransientProviderException('OVH API server error for [/service/400010003/renew] (HTTP 503).'),
     ]);
 
     ovhSync($account);
@@ -365,10 +367,10 @@ it('captures a snapshot after a partial sync but writes nothing when a run fails
 
     // A failed run changes nothing and writes nothing.
     $api->responses = ['/me' => ovhFixture('me.json')];
-    $api->throwOn('/service', array_fill(
+    $api->throwOn('/services', array_fill(
         0,
         (int) config('sync.retry.max_attempts'),
-        new TransientProviderException('OVH rate limit reached for [/service] (HTTP 429).'),
+        new TransientProviderException('OVH rate limit reached for [/services] (HTTP 429).'),
     ));
 
     $failed = ovhSync($account);
@@ -388,7 +390,7 @@ it('records inventory and renewal quotes as the supported capabilities', functio
         ->pluck('supported', 'capability_key');
 
     expect($run->refresh()->counts)->toHaveKey('inventory')
-        ->and($run->counts['cost_facts'])->toBe(['seen' => 4, 'created' => 4, 'superseded' => 0, 'updated' => 0, 'renewals' => 1, 'ended' => 0])
+        ->and($run->counts['cost_facts'])->toBe(['seen' => 4, 'created' => 4, 'superseded' => 0, 'updated' => 0, 'renewals' => 0, 'ended' => 0])
         ->and($states[ProviderCapability::Inventory->value])->toBeTrue()
         ->and($states[ProviderCapability::RenewalQuotes->value])->toBeTrue()
         ->and($states[ProviderCapability::Subscriptions->value])->toBeFalse()

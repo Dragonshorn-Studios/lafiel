@@ -12,6 +12,11 @@ use App\Domain\Providers\Dtos\InventoryBatch;
  * when they actually changed, so an identical re-sync leaves rows (and
  * their updated_at) untouched. Seen timestamps are set on creation
  * only — ongoing seen/missing transitions are lifecycle's job.
+ *
+ * The `metadata` column is owned by the provider adapter: it is this
+ * class's job to overwrite it wholesale with the provider's own
+ * lifecycle fields on every sync, and no other writer may rely on
+ * shaping it.
  */
 final class PersistInventoryBatch
 {
@@ -38,6 +43,7 @@ final class PersistInventoryBatch
             $service->name = $item->name;
             $service->provider_type = $item->providerType;
             $service->url = $item->url;
+            $service->metadata = $item->metadata;
 
             if ($service->isDirty()) {
                 $service->save();

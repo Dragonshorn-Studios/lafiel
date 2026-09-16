@@ -30,6 +30,26 @@
                             }
                         }
                     ]
+                },
+                {
+                    "name": "ip-block-2025",
+                    "planCode": "ip-block-2025-monthly",
+                    "pricings": [
+                        {
+                            "duration": "P1M",
+                            "pricingMode": "default",
+                            "description": "monthly renewal",
+                            "price": {
+                                "currencyCode": "EUR",
+                                "text": "5.00 €",
+                                "value": 5.0
+                            },
+                            "priceInUtv": 500,
+                            "tax": {
+                                "mode": "vat-excluded"
+                            }
+                        }
+                    ]
                 }
             ]
         }

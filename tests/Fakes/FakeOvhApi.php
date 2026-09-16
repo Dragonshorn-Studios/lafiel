@@ -23,6 +23,9 @@ final class FakeOvhApi implements OvhApi
     /** @var list<string> */
     public array $calls = [];
 
+    /** @var array<string, list<array<string, int|string>>> query params recorded per path, in call order */
+    public array $queries = [];
+
     /**
      * @param  array<string, mixed>  $responses
      */
@@ -34,6 +37,7 @@ final class FakeOvhApi implements OvhApi
     public function get(string $path, array $parameters = []): mixed
     {
         $this->calls[] = $path;
+        $this->queries[$path][] = $parameters;
 
         $exception = $this->exceptions[$path][0] ?? null;
 
