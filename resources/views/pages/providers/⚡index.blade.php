@@ -12,6 +12,7 @@ use App\Domain\Providers\Enums\ConnectionStatus;
 use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Sync\Actions\RequestSync;
+use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
 use Flux\Flux;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -220,7 +221,16 @@ new #[Title('Providers')] class extends Component {
      */
     public function syncNow(int $accountId): void
     {
-        $account = $this->account($accountId);
+        // The details modal can outlive the account it describes — a
+        // disconnect in another tab leaves its buttons armed. A stale
+        // id should toast, not throw.
+        $account = ProviderAccount::query()->find($accountId);
+
+        if ($account === null) {
+            Flux::toast(variant: 'warning', text: __('This provider account no longer exists.'));
+
+            return;
+        }
 
         if (! $account->enabled) {
             Flux::toast(variant: 'warning', text: __('Sync is paused for this account.'));
@@ -236,7 +246,7 @@ new #[Title('Providers')] class extends Component {
             return;
         }
 
-        if ($run->status->value === 'failed') {
+        if ($run->status === SyncStatus::Failed) {
             Flux::toast(variant: 'danger', text: __('The sync could not be queued. Check the logs.'));
 
             return;
@@ -278,6 +288,10 @@ new #[Title('Providers')] class extends Component {
             $this->closePanel();
         }
 
+        if ($this->syncDetailsAccountId === $accountId) {
+            $this->syncDetailsAccountId = null;
+        }
+
         Flux::toast(variant: 'success', text: __('Provider account disconnected. Its synced history was removed.'));
     }
 
@@ -294,8 +308,9 @@ new #[Title('Providers')] class extends Component {
     }
 
     /**
-     * Fetch the account's latest run freshly — the eager-loaded one may
-     * predate the click — and open the details modal.
+     * Open the details modal for this account's latest
+     * synchronization; the run itself is fetched fresh at render time
+     * by the syncDetailsRun() computed.
      */
     public function openSyncDetails(int $accountId): void
     {
@@ -315,13 +330,43 @@ new #[Title('Providers')] class extends Component {
     }
 
     /**
-     * The account's most recent run, straight from the database so the
-     * modal never shows the request-stale eager-loaded copy.
+     * The account's most recent run, fetched fresh by the stored id so
+     * the modal does not depend on the accounts() listing.
      */
     #[Computed]
     public function syncDetailsRun(): ?SyncRun
     {
         return $this->syncDetailsAccount?->latestSyncRun()->first();
+    }
+
+    /**
+     * Accessible label for a card's last-run badge: names the state and
+     * says the badge opens the details dialog.
+     */
+    public function badgeLabel(?SyncRun $lastRun): string
+    {
+        return $lastRun !== null
+            ? __('Last run: :status — show synchronization details', ['status' => $lastRun->status->label()])
+            : __('Never synced — show synchronization details');
+    }
+
+    /**
+     * The run's display summary: the error to headline — the stored
+     * error, or the first warning of legacy runs that predate the
+     * error key — plus the remaining notes.
+     *
+     * @return array{error: ?string, warnings: list<string>}
+     */
+    public function syncDetailsSummary(SyncRun $run): array
+    {
+        $error = $run->summary['error'] ?? null;
+        $warnings = $run->summary['warnings'] ?? [];
+
+        if ($error === null && $warnings !== [] && $run->status === SyncStatus::Failed) {
+            $error = array_shift($warnings);
+        }
+
+        return ['error' => $error, 'warnings' => $warnings];
     }
 
     /**
@@ -450,9 +495,7 @@ new #[Title('Providers')] class extends Component {
                             wire:click="openSyncDetails({{ $account->id }})"
                             class="group inline-flex cursor-pointer items-center gap-1.5 rounded-control px-1 py-0.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
                             aria-haspopup="dialog"
-                            aria-label="{{ $account->latestSyncRun !== null
-                                ? __('Last run: :status — show synchronization details', ['status' => $account->latestSyncRun->status->label()])
-                                : __('Never synced — show synchronization details') }}"
+                            aria-label="{{ $this->badgeLabel($account->latestSyncRun) }}"
                             data-test="last-run-status"
                         >
                             @if ($account->latestSyncRun !== null)
@@ -463,7 +506,7 @@ new #[Title('Providers')] class extends Component {
                                 <flux:icon.clock variant="mini" class="size-3.5" />
                             @endif
 
-                            {{-- Loading state while the details round-trip runs. --}}
+                            {{-- The chevron swaps for a spinner while the details round-trip runs. --}}
                             <flux:icon.arrow-path variant="mini" class="size-3.5 animate-spin" wire:loading wire:target="openSyncDetails({{ $account->id }})" data-test="sync-details-loading" />
 
                             <flux:icon.chevron-right variant="micro" class="size-3 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" wire:loading.remove wire:target="openSyncDetails({{ $account->id }})" />
@@ -615,10 +658,7 @@ new #[Title('Providers')] class extends Component {
                 </x-imperial.empty-state>
             @else
                 @php($run = $this->syncDetailsRun)
-                @php($warnings = $run->summary['warnings'] ?? [])
-                @php($error = $run->summary['error'] ?? (
-                    $run->status->value === 'failed' && $warnings !== [] ? $warnings[0] : null
-                ))
+                @php($summary = $this->syncDetailsSummary($run))
 
                 <div class="flex flex-wrap items-center gap-2">
                     <x-imperial.sync-status-badge :status="$run->status" />
@@ -629,7 +669,7 @@ new #[Title('Providers')] class extends Component {
 
                     @if ($run->stage !== null)
                         <span class="text-xs text-ink-secondary">
-                            {{ $run->status->value === 'failed' ? __('failed during :stage', ['stage' => $run->stage->label()]) : $run->stage->label() }}
+                            {{ $run->status === SyncStatus::Failed ? __('failed during :stage', ['stage' => $run->stage->label()]) : $run->stage->label() }}
                         </span>
                     @endif
                 </div>
@@ -660,18 +700,18 @@ new #[Title('Providers')] class extends Component {
                     @endif
                 </dl>
 
-                @if ($error !== null)
+                @if ($summary['error'] !== null)
                     <div class="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger" data-test="sync-details-error">
-                        {{ $error }}
+                        {{ $summary['error'] }}
                     </div>
                 @endif
 
-                @if ($warnings !== [])
+                @if ($summary['warnings'] !== [])
                     <div>
                         <p class="text-xs font-medium text-ink-secondary">{{ __('Notes from the run') }}</p>
 
                         <ul class="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-control border border-line bg-surface-subtle p-3 text-xs text-ink-secondary" data-test="sync-details-warnings">
-                            @foreach ($warnings as $warning)
+                            @foreach ($summary['warnings'] as $warning)
                                 <li wire:key="warning-{{ $loop->index }}">{{ $warning }}</li>
                             @endforeach
                         </ul>
@@ -696,7 +736,7 @@ new #[Title('Providers')] class extends Component {
                     </a>
 
                     <div class="flex items-center gap-2">
-                        @if ($run->status->value === 'failed' && $this->syncDetailsAccount->enabled)
+                        @if ($run->status === SyncStatus::Failed && $this->syncDetailsAccount->enabled)
                             <flux:button size="sm" variant="primary" wire:click="syncNow({{ $this->syncDetailsAccount->id }})" data-test="sync-details-retry">
                                 {{ __('Retry sync') }}
                             </flux:button>
