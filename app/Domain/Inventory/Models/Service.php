@@ -27,6 +27,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string|null $vendor
  * @property string|null $url
  * @property string|null $notes
+ * @property array<string, mixed>|null $metadata
  * @property CarbonImmutable|null $first_seen_at
  * @property CarbonImmutable|null $last_seen_at
  * @property int $missing_complete_runs
@@ -34,7 +35,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['provider_account_id', 'external_id', 'provider_type', 'category', 'name', 'vendor', 'url', 'notes', 'first_seen_at', 'last_seen_at', 'missing_complete_runs', 'lifecycle_state'])]
+#[Fillable(['provider_account_id', 'external_id', 'provider_type', 'category', 'name', 'vendor', 'url', 'notes', 'metadata', 'first_seen_at', 'last_seen_at', 'missing_complete_runs', 'lifecycle_state'])]
 class Service extends Model
 {
     /** @use HasFactory<ServiceFactory> */
@@ -52,6 +53,7 @@ class Service extends Model
             'last_seen_at' => 'datetime',
             'missing_complete_runs' => 'integer',
             'lifecycle_state' => ServiceLifecycle::class,
+            'metadata' => 'array',
         ];
     }
 

@@ -38,6 +38,7 @@ final class PersistInventoryBatch
             $service->name = $item->name;
             $service->provider_type = $item->providerType;
             $service->url = $item->url;
+            $service->metadata = $item->metadata;
 
             if ($service->isDirty()) {
                 $service->save();

@@ -1,0 +1,18 @@
+{
+    "services": [
+        {
+            "serviceId": 400010003,
+            "serviceName": "cloud-project-synthetic-01",
+            "selectedPrice": null,
+            "renew": {
+                "automatic": true,
+                "forced": false,
+                "manualPayment": false,
+                "period": "P1M",
+                "renew": "automatic"
+            }
+        }
+    ],
+    "options": [],
+    "prices": []
+}

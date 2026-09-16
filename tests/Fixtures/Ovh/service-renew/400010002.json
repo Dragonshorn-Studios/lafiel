@@ -1,0 +1,33 @@
+{
+    "services": [
+        {
+            "serviceId": 400010002,
+            "serviceName": "domain-zone-synthetic-01",
+            "selectedPrice": "zone-2025 P1M",
+            "renew": {
+                "automatic": false,
+                "forced": false,
+                "manualPayment": false,
+                "period": "P1M",
+                "renew": "manual"
+            }
+        }
+    ],
+    "options": [],
+    "prices": [
+        {
+            "label": "zone-2025 P1M",
+            "description": "renew domain-zone-synthetic-01 for one month",
+            "duration": "P1M",
+            "price": {
+                "currencyCode": "EUR",
+                "text": "1.49",
+                "value": 1.49
+            },
+            "priceInUtv": 149,
+            "tax": {
+                "mode": "vat-excluded"
+            }
+        }
+    ]
+}

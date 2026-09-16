@@ -1,0 +1,18 @@
+{
+    "services": [
+        {
+            "serviceId": 400010004,
+            "serviceName": "ip-synthetic-01",
+            "selectedPrice": null,
+            "renew": {
+                "automatic": true,
+                "forced": false,
+                "manualPayment": false,
+                "period": "P1M",
+                "renew": "automatic"
+            }
+        }
+    ],
+    "options": [],
+    "prices": []
+}
