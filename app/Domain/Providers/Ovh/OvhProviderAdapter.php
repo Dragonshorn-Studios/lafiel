@@ -164,13 +164,15 @@ final class OvhProviderAdapter implements ProviderAdapter
         $identity = $this->identity($api);
 
         $facts = [];
+        /** @var list<string> $warnings */
         $warnings = $identity['warnings'];
         $catalogs = [];
         $degraded = false;
 
-        $inventoryIds = collect($inventory->items)
-            ->map(fn (InventoryItem $item): string => $item->externalId)
-            ->all();
+        $inventoryIds = array_map(
+            fn (InventoryItem $item): string => $item->externalId,
+            $inventory->items,
+        );
 
         // Sibling services can carry identical copies of one strategy
         // payload; the covered-set reference dedupes them to one fact.
@@ -365,6 +367,9 @@ final class OvhProviderAdapter implements ProviderAdapter
      * The technical service name, falling back to the service id —
      * a listing entry without a name is odd but still inventoried.
      */
+    /**
+     * @param  array<string, mixed>  $entry
+     */
     private function serviceNameOf(array $entry, string $serviceId): string
     {
         $name = $entry['serviceName'] ?? null;
@@ -373,6 +378,7 @@ final class OvhProviderAdapter implements ProviderAdapter
     }
 
     /**
+     * @param  array<string, mixed>  $entry
      * @return array<string, mixed>|null the preserved listing fields
      */
     private function metadataOf(array $entry): ?array
@@ -410,7 +416,9 @@ final class OvhProviderAdapter implements ProviderAdapter
      * unknown fallback — so a service still in inventory always has a
      * reported charge and its absence can never read as cancellation.
      *
+     * @param  array<string, mixed>  $renew
      * @param  list<string>  $inventoryIds
+     * @param  list<string>  $warnings
      * @return array{0: list<string>, 1: list<string>, 2: Period, 3: bool, 4: bool}
      *                                                                              the last flag marks whether the payload described a
      *                                                                              strategy this run can price at all
@@ -482,6 +490,9 @@ final class OvhProviderAdapter implements ProviderAdapter
      * The renewal period the account configured, taken from the first
      * covered strategy service that expresses one — entries pointing
      * outside this run's inventory never speak for the fact.
+     *
+     * @param  array<string, mixed>  $renew
+     * @param  list<string>  $covered
      */
     private function configuredPeriod(array $renew, array $covered): mixed
     {
@@ -500,6 +511,10 @@ final class OvhProviderAdapter implements ProviderAdapter
         return null;
     }
 
+    /**
+     * @param  array<string, mixed>  $renew
+     * @param  list<string>  $covered
+     */
     private function autoRenewOf(array $renew, array $covered): bool
     {
         foreach ((array) ($renew['services'] ?? []) as $entry) {
@@ -523,7 +538,9 @@ final class OvhProviderAdapter implements ProviderAdapter
      * stays unknown rather than guessed. A selected label with no price
      * part is a provider payload gap and is warned about.
      *
+     * @param  array<string, mixed>  $renew
      * @param  list<string>  $selectedLabels
+     * @param  list<string>  $warnings
      * @return array{0: list<array<string, mixed>>|null, 1: bool} the
      *                                                            price parts (null when unusable) and the ambiguity flag
      */
@@ -642,6 +659,7 @@ final class OvhProviderAdapter implements ProviderAdapter
     }
 
     /**
+     * @param  list<array<string, mixed>>  $parts
      * @return array{0: Money, 1: TaxBasis}
      *
      * @throws \InvalidArgumentException
@@ -662,6 +680,8 @@ final class OvhProviderAdapter implements ProviderAdapter
      * The formatted catalog that prices one provider type's fallback.
      * A fetch that fails returns null; the caller degrades the run
      * instead of crashing.
+     *
+     * @return array<string, mixed>|null
      */
     private function loadCatalog(OvhApi $api, string $family, ?string $subsidiary): ?array
     {
