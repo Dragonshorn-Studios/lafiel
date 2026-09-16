@@ -18,6 +18,8 @@ Route::middleware(['auth'])->group(function () {
 
     Route::livewire('providers', 'pages::providers.index')->name('providers.index');
 
+    Route::livewire('syncs', 'pages::sync.index')->name('syncs.index');
+
     Route::livewire('services/{service}', 'pages::services.show')->name('services.show');
 });
 

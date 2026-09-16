@@ -27,12 +27,14 @@ use App\Domain\Providers\Models\ProviderCapabilityState;
 use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Support\ValueObjects\Money;
 use App\Domain\Sync\Actions\RequestSync;
+use App\Domain\Sync\Enums\SyncStage;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Jobs\SyncProviderAccount;
 use App\Domain\Sync\Models\SyncRun;
 use App\Domain\Sync\SyncOrchestrator;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -364,7 +366,7 @@ it('keeps the last good data when the provider keeps failing transiently', funct
         ->and($account->fresh()->last_success_at->equalTo($goodSuccessAt))->toBeTrue()
         // 1 call from the earlier good sync + the full retry budget of 4.
         ->and($adapter->inventoryCalls)->toBe(5)
-        ->and($run->summary['warnings'])->toBe(['TransientProviderException: 429 too many requests (after 4 attempts)']);
+        ->and($run->summary['error'])->toBe('TransientProviderException: 429 too many requests (after 4 attempts)');
 
     $stale = ProviderCapabilityState::query()->where('capability_key', 'inventory')->sole();
     expect($stale->healthy)->toBeFalse()
@@ -433,7 +435,7 @@ it('fails fast on invalid credentials without fetching anything', function () {
     expect($run->status)->toBe(SyncStatus::Failed)
         ->and($adapter->validateCalls)->toBe(1)
         ->and($adapter->inventoryCalls)->toBe(0)
-        ->and($run->summary['warnings'])->toBe(['provider rejected the credentials']);
+        ->and($run->summary['error'])->toBe('provider rejected the credentials');
 
     $credential = $account->credentials()->sole();
     expect($credential->verified_at)->toBeNull();
@@ -499,7 +501,7 @@ it('fails the run and persists nothing when a batch is invalid', function () {
 
     expect($run->status)->toBe(SyncStatus::Failed)
         ->and(Service::query()->count())->toBe(0)
-        ->and($run->summary['warnings'][0])->toContain('non-canonical category');
+        ->and($run->summary['error'])->toContain('non-canonical category');
 });
 
 it('records an invalid cost batch as partial while keeping the inventory', function () {
@@ -535,7 +537,7 @@ it('fails the run when no adapter is registered for the provider', function () {
     $run = runSync($account, $adapter)->fresh();
 
     expect($run->status)->toBe(SyncStatus::Failed)
-        ->and($run->summary['warnings'][0])->toContain('ghost');
+        ->and($run->summary['error'])->toContain('ghost');
 });
 
 it('never starts a parallel run through the request action', function () {
@@ -585,7 +587,7 @@ it('abandons a stale active run so future syncs are not blocked', function () {
 
     expect($run)->not->toBeNull()
         ->and($stale->fresh()->status)->toBe(SyncStatus::Failed)
-        ->and($stale->fresh()->summary['warnings'])->toBe(['abandoned before completion']);
+        ->and($stale->fresh()->summary['error'])->toBe('abandoned before completion');
 });
 
 it('fails the run when the account lock is already held', function () {
@@ -597,7 +599,7 @@ it('fails the run when the account lock is already held', function () {
     $run = runSync($account, $adapter)->fresh();
 
     expect($run->status)->toBe(SyncStatus::Failed)
-        ->and($run->summary['warnings'])->toBe(['account lock is held by another sync'])
+        ->and($run->summary['error'])->toBe('account lock is held by another sync')
         ->and($adapter->validateCalls)->toBe(0);
 });
 
@@ -628,7 +630,7 @@ it('marks an unexpectedly failed job as a failed run', function () {
 
     $run = $run->fresh();
     expect($run->status)->toBe(SyncStatus::Failed)
-        ->and($run->summary['warnings'][0])->toContain('RuntimeException');
+        ->and($run->summary['error'])->toContain('RuntimeException');
 });
 
 // ---------------------------------------------------------------------------
@@ -652,7 +654,7 @@ it('abandons a stale running run so a crashed worker cannot block the account', 
 
     expect($run)->not->toBeNull()
         ->and($stale->fresh()->status)->toBe(SyncStatus::Failed)
-        ->and($stale->fresh()->summary['warnings'])->toBe(['abandoned before completion']);
+        ->and($stale->fresh()->summary['error'])->toBe('abandoned before completion');
 });
 
 it('does not overwrite a finished run when the job fails late', function () {
@@ -741,7 +743,7 @@ it('rejects a batch whose completeness contradicts its content', function () {
 
     expect($run->status)->toBe(SyncStatus::Failed)
         ->and(Service::query()->count())->toBe(0)
-        ->and($run->summary['warnings'][0])->toContain('but carries items');
+        ->and($run->summary['error'])->toContain('but carries items');
 });
 
 it('records a cost batch with duplicate source references as partial', function () {
@@ -1052,6 +1054,17 @@ it('reports an already active sync instead of queueing another', function () {
         ->expectsOutputToContain('already syncing');
 });
 
+it('reports the dispatch failure cause from the sync command', function () {
+    makeAccount(new FakeProviderAdapter);
+
+    Bus::shouldReceive('dispatch')
+        ->andThrow(new RuntimeException('queue connection refused'));
+
+    artisan('lafiel:sync')
+        ->expectsOutputToContain('could not queue the sync job: RuntimeException')
+        ->assertFailed();
+});
+
 it('fails the run and clears verification when the provider rejects credentials mid-cost-phase', function () {
     $adapter = new FakeProviderAdapter(
         inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
@@ -1072,6 +1085,7 @@ it('fails the run and clears verification when the provider rejects credentials 
     $run = runSync($account, $adapter)->fresh();
 
     expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($run->stage)->toBe(SyncStage::Costs)
         ->and($credential->refresh()->verified_at)->toBeNull();
 });
 
@@ -1104,4 +1118,52 @@ it('keeps a stored note when a later observation carries none', function () {
     runSync($account, $adapter);
 
     expect(CostItem::query()->sole()->notes)->toBe('Rate plan: Bundle');
+});
+
+// ---------------------------------------------------------------------------
+// Stage tracking and failure causes (sync activity view)
+// ---------------------------------------------------------------------------
+
+it('records the stage a run reached', function () {
+    $adapter = new FakeProviderAdapter(
+        inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
+        costFactBatch: costBatch([costFact('srv-1-monthly', ['srv-1'], Money::ofMinor(1050, 'PLN'))]),
+    );
+    $account = makeAccount($adapter);
+
+    // A run that completes ends on the persisting stage.
+    expect(runSync($account, $adapter)->fresh()->stage)->toBe(SyncStage::Persisting);
+
+    // A run that dies on inventory keeps the inventory stage.
+    Sleep::fake();
+    $this->travel(1)->hour();
+    $adapter->inventoryExceptions = array_fill(0, 4, new TransientProviderException('429 too many requests'));
+
+    $run = runSync($account, $adapter)->fresh();
+    expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($run->stage)->toBe(SyncStage::Inventory);
+
+    // A run rejected at credential validation keeps the credentials stage.
+    $rejected = makeAccount(new FakeProviderAdapter(
+        credentialCheck: CredentialCheck::invalid('provider rejected the credentials'),
+    ), ['provider_key' => 'rejected'], registerAs: 'rejected');
+    $run = runSync($rejected, new FakeProviderAdapter)->fresh();
+
+    expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($run->stage)->toBe(SyncStage::Credentials);
+});
+
+it('redacts the failure cause stored as the run error', function () {
+    $payload = ['key' => 'hk-1234567890abcdef', 'secret' => 'supersecretvalue-9999'];
+    Sleep::fake();
+    $adapter = new FakeProviderAdapter;
+    $adapter->inventoryExceptions = array_fill(0, 4, new TransientProviderException("429 leaked {$payload['secret']}"));
+    $account = makeAccount($adapter, credentialAttributes: ['payload' => $payload]);
+
+    $run = runSync($account, $adapter)->fresh();
+
+    $encoded = (string) json_encode($run->summary);
+    expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($run->summary['error'])->toContain('[redacted]')
+        ->and($encoded)->not->toContain($payload['secret']);
 });

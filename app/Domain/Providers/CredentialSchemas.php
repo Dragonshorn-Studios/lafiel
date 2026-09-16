@@ -45,6 +45,20 @@ final class CredentialSchemas
     }
 
     /**
+     * Display label for a provider key, falling back to the key itself
+     * when no schema is registered — for UI surfaces that render stored
+     * accounts, not the connectable set.
+     */
+    public function labelFor(string $providerKey): string
+    {
+        try {
+            return $this->for($providerKey)::label();
+        } catch (UnsupportedProviderException) {
+            return $providerKey;
+        }
+    }
+
+    /**
      * Connectable providers for the form's select, label-ordered.
      *
      * @return array<string, string> provider key => label

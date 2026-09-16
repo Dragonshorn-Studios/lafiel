@@ -58,9 +58,12 @@ final class RequestSync
         } catch (Throwable $exception) {
             // A dispatch failure would otherwise leave the run queued
             // with no job behind it, blocking further syncs until the
-            // stale-run reconciler aged it out.
+            // stale-run reconciler aged it out. The exception class
+            // only: a queue-layer message is unredacted by construction
+            // (host, port, credentials of the broker), and the full
+            // message is logged below.
             $run->status = SyncStatus::Failed;
-            $run->summary = ['warnings' => ['could not queue the sync job: '.$exception->getMessage()]];
+            $run->summary = ['error' => 'could not queue the sync job: '.$exception::class];
             $run->finished_at = now();
             $run->save();
 

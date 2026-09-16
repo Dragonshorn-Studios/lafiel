@@ -32,7 +32,7 @@ final class ReconcileStaleRuns
             ->update([
                 'status' => SyncStatus::Failed->value,
                 'finished_at' => (new CarbonImmutable),
-                'summary' => ['warnings' => ['abandoned before completion']],
+                'summary' => ['error' => 'abandoned before completion'],
             ]);
     }
 }

@@ -67,8 +67,8 @@ final class SyncNowCommand extends Command
             // command so exit-code-based monitoring sees it.
             if ($run->status->value === 'failed') {
                 $couldNotQueue++;
-                $warning = $run->summary['warnings'][0] ?? 'could not queue the sync job';
-                $this->error(" [{$account->id}] {$account->display_name}: {$warning}");
+                $error = $run->summary['error'] ?? 'could not queue the sync job';
+                $this->error(" [{$account->id}] {$account->display_name}: {$error}");
 
                 continue;
             }

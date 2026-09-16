@@ -3,6 +3,7 @@
 namespace Database\Factories\Domain\Sync\Models;
 
 use App\Domain\Providers\Models\ProviderAccount;
+use App\Domain\Sync\Enums\SyncStage;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -30,10 +31,42 @@ class SyncRunFactory extends Factory
             'provider_account_id' => ProviderAccount::factory(),
             'trigger' => fake()->randomElement(['schedule', 'manual', 'setup']),
             'status' => SyncStatus::Succeeded,
+            'stage' => null,
             'started_at' => now(),
             'finished_at' => now(),
             'counts' => null,
             'summary' => null,
         ];
+    }
+
+    /** Indicate that the run never left the queue. */
+    public function queued(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => SyncStatus::Queued,
+            'stage' => null,
+            'started_at' => null,
+            'finished_at' => null,
+        ]);
+    }
+
+    /** Indicate that a worker is mid-run, fetching inventory. */
+    public function running(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => SyncStatus::Running,
+            'stage' => SyncStage::Inventory,
+            'finished_at' => null,
+        ]);
+    }
+
+    /** Indicate that the run failed at credential validation. */
+    public function failed(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => SyncStatus::Failed,
+            'stage' => SyncStage::Credentials,
+            'summary' => ['error' => 'credentials are invalid'],
+        ]);
     }
 }

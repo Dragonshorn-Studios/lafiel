@@ -22,6 +22,7 @@
                     'costs.renewals' => ['label' => __('Renewals'), 'icon' => 'arrow-path'],
                     'costs.history' => ['label' => __('History'), 'icon' => 'clock'],
                     'providers.index' => ['label' => __('Providers'), 'icon' => 'users'],
+                    'syncs.index' => ['label' => __('Syncs'), 'icon' => 'queue-list'],
                 ] as $route => $item)
                     <a
                         href="{{ route($route) }}"
@@ -167,12 +168,13 @@
 
         {{-- --- Bottom nav (mobile) --- --}}
         <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="{{ __('Main') }}">
-            <div class="grid grid-cols-4">
+            <div class="grid grid-cols-5">
                 @foreach ([
                     'overview' => ['label' => __('Overview'), 'icon' => 'home'],
                     'costs.index' => ['label' => __('Services'), 'icon' => 'server-stack'],
                     'costs.renewals' => ['label' => __('Renewals'), 'icon' => 'arrow-path'],
                     'providers.index' => ['label' => __('Providers'), 'icon' => 'users'],
+                    'syncs.index' => ['label' => __('Syncs'), 'icon' => 'queue-list'],
                 ] as $route => $item)
                     <a
                         href="{{ route($route) }}"

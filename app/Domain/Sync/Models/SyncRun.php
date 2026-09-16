@@ -3,6 +3,7 @@
 namespace App\Domain\Sync\Models;
 
 use App\Domain\Providers\Models\ProviderAccount;
+use App\Domain\Sync\Enums\SyncStage;
 use App\Domain\Sync\Enums\SyncStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\Domain\Sync\Models\SyncRunFactory;
@@ -19,14 +20,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $provider_account_id
  * @property string $trigger
  * @property SyncStatus $status
+ * @property SyncStage|null $stage
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $finished_at
  * @property array<string, mixed>|null $counts
- * @property array<string, mixed>|null $summary
+ * @property array{error?: string, warnings?: list<string>}|null $summary
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['provider_account_id', 'trigger', 'status', 'started_at', 'finished_at', 'counts', 'summary'])]
+#[Fillable(['provider_account_id', 'trigger', 'status', 'stage', 'started_at', 'finished_at', 'counts', 'summary'])]
 class SyncRun extends Model
 {
     /** @use HasFactory<SyncRunFactory> */
@@ -41,6 +43,7 @@ class SyncRun extends Model
     {
         return [
             'status' => SyncStatus::class,
+            'stage' => SyncStage::class,
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'counts' => 'array',
