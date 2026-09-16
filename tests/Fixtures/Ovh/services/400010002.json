@@ -1,0 +1,73 @@
+{
+    "serviceId": 400010002,
+    "parentServiceId": null,
+    "resource": {
+        "displayName": "domain-zone-synthetic-01",
+        "name": "domain-zone-synthetic-01",
+        "state": "active",
+        "product": {
+            "name": "dns",
+            "description": "DNS zone"
+        }
+    },
+    "route": {
+        "path": "/domain/zone/{zoneName}",
+        "url": "/domain/zone/domain-synthetic-01.eu.org",
+        "vars": [
+            {
+                "key": "zoneName",
+                "value": "domain-synthetic-01.eu.org"
+            }
+        ]
+    },
+    "billing": {
+        "expirationDate": null,
+        "nextBillingDate": "2026-10-20T14:02:10+01:00",
+        "plan": {
+            "code": "zone-2025",
+            "invoiceName": "DNS zone"
+        },
+        "pricing": {
+            "capacities": ["renew"],
+            "description": "monthly renewal",
+            "duration": "P1M",
+            "interval": 1,
+            "price": {
+                "currencyCode": "EUR",
+                "text": "1.49 €",
+                "value": 1.49,
+                "priceInUcents": 149000000
+            },
+            "priceInUcents": 149000000,
+            "pricingMode": "default",
+            "pricingType": "rental"
+        },
+        "renew": {
+            "capacities": {
+                "mode": ["automatic", "manual"]
+            },
+            "current": {
+                "mode": "manual",
+                "nextDate": "2026-10-20T14:02:10+01:00",
+                "period": "P1M"
+            }
+        },
+        "lifecycle": {
+            "capacities": {
+                "actions": []
+            },
+            "current": {
+                "creationDate": "2026-02-20T14:02:10+01:00",
+                "pendingActions": [],
+                "state": "active",
+                "terminationDate": null
+            }
+        },
+        "engagement": null,
+        "group": null
+    },
+    "customer": {
+        "contacts": []
+    },
+    "tags": []
+}

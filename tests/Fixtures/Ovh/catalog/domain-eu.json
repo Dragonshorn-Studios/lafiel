@@ -1,39 +1,33 @@
 {
-    "catalogName": "domain",
-    "date": "2026-09-01",
-    "pricingMode": "default",
-    "locale": {
-        "currencyCode": "EUR",
-        "name": "Europe/Paris",
-        "position": "6"
-    },
-    "catalog": [
+    "catalogId": 3,
+    "merchantCode": "IE",
+    "plans": [
         {
-            "name": "domain",
-            "products": [
-                {
+            "planCode": "eu.org-hosting-2025",
+            "invoiceName": "eu.org zone",
+            "familyName": "domain",
+            "details": {
+                "product": {
                     "name": "eu.org-hosting-2025",
-                    "planCode": "eu.org-hosting-2025-monthly",
-                    "pricings": [
+                    "description": "eu.org zone"
+                },
+                "pricings": {
+                    "default": [
                         {
-                            "duration": "P1M",
-                            "pricingMode": "default",
+                            "capacities": ["renew"],
                             "description": "monthly renewal",
+                            "interval": 1,
+                            "intervalUnit": "month",
                             "price": {
                                 "currencyCode": "EUR",
                                 "text": "1.20 €",
                                 "value": 1.2
                             },
-                            "priceInUtv": 120,
-                            "tax": {
-                                "mode": "vat-excluded"
-                            }
+                            "priceInUcents": 120000000
                         }
                     ]
                 }
-            ]
+            }
         }
-    ],
-    "structures": [],
-    "addonsFamilies": []
+    ]
 }

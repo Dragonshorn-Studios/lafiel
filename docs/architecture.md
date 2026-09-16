@@ -72,7 +72,7 @@ Optional capabilities include subscriptions, renewal quotes, usage, and invoices
 
 `services` is unique by `(provider_account_id, external_id)` and retains the provider type separately from the canonical category. Core lifecycle fields include `first_seen_at`, `last_seen_at`, `missing_complete_runs`, and `lifecycle_state`.
 
-Lifecycle is `active | missing | inactive`. A service becomes inactive only after the configured number of successful complete inventories that omit it (default: three). Partial or failed inventory never advances that counter. Records are not hard-deleted.
+Lifecycle is `active | missing | inactive`. A service becomes inactive only after the configured number of successful complete inventories that omit it (default: three). Partial or failed inventory never advances that counter. Inventory lifecycle does not hard-delete records. Disconnect and **Clear synced data** are operator resets: they remove that account's discovered services and provider-sourced charges. Independent manual charges stay.
 
 ### Cost items
 

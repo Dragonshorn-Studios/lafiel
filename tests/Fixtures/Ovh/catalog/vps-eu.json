@@ -1,53 +1,45 @@
 {
-    "catalogName": "vps",
-    "date": "2026-09-01",
-    "pricingMode": "default",
-    "locale": {
-        "currencyCode": "EUR",
-        "name": "Europe/Paris",
-        "position": "6"
-    },
-    "catalog": [
+    "catalogId": 1,
+    "merchantCode": "IE",
+    "plans": [
         {
-            "name": "vps",
-            "products": [
-                {
+            "planCode": "vps-essentials-2025",
+            "invoiceName": "VPS Essentials 2025",
+            "familyName": "vps",
+            "details": {
+                "product": {
                     "name": "vps-essentials-2025",
-                    "planCode": "vps-essentials-2025-monthly",
-                    "pricings": [
+                    "description": "VPS Essentials 2025"
+                },
+                "pricings": {
+                    "default": [
                         {
-                            "duration": "P1M",
-                            "pricingMode": "default",
+                            "capacities": ["renew"],
                             "description": "monthly renewal",
+                            "interval": 1,
+                            "intervalUnit": "month",
                             "price": {
                                 "currencyCode": "EUR",
                                 "text": "7.00 €",
                                 "value": 7.0
                             },
-                            "priceInUtv": 700,
-                            "tax": {
-                                "mode": "vat-excluded"
-                            }
+                            "priceInUcents": 700000000
                         },
                         {
-                            "duration": "P12M",
-                            "pricingMode": "default",
+                            "capacities": ["renew"],
                             "description": "annual renewal",
+                            "interval": 1,
+                            "intervalUnit": "year",
                             "price": {
                                 "currencyCode": "EUR",
                                 "text": "72.00 €",
                                 "value": 72.0
                             },
-                            "priceInUtv": 7200,
-                            "tax": {
-                                "mode": "vat-excluded"
-                            }
+                            "priceInUcents": 7200000000
                         }
                     ]
                 }
-            ]
+            }
         }
-    ],
-    "structures": [],
-    "addonsFamilies": []
+    ]
 }

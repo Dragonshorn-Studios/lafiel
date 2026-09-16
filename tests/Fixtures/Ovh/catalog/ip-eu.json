@@ -1,59 +1,60 @@
 {
-    "catalogName": "ip",
-    "date": "2026-09-01",
-    "pricingMode": "default",
-    "locale": {
-        "currencyCode": "EUR",
-        "name": "Europe/Paris",
-        "position": "6"
-    },
-    "catalog": [
+    "catalogId": 2,
+    "merchantCode": "IE",
+    "plans": [
         {
-            "name": "ip",
-            "products": [
-                {
+            "planCode": "ip-failover-2025",
+            "invoiceName": "Failover IP",
+            "familyName": "ip",
+            "details": {
+                "product": {
                     "name": "ip-failover-2025",
-                    "planCode": "ip-failover-2025-monthly",
-                    "pricings": [
+                    "description": "Failover IP"
+                },
+                "pricings": {
+                    "default": [
                         {
-                            "duration": "P1M",
-                            "pricingMode": "default",
+                            "capacities": ["renew"],
                             "description": "monthly renewal",
+                            "interval": 1,
+                            "intervalUnit": "month",
                             "price": {
                                 "currencyCode": "EUR",
                                 "text": "2.00 €",
                                 "value": 2.0
                             },
-                            "priceInUtv": 200,
-                            "tax": {
-                                "mode": "vat-excluded"
-                            }
+                            "priceInUcents": 200000000
                         }
                     ]
-                },
-                {
+                }
+            }
+        },
+        {
+            "planCode": "ip-block-2025",
+            "invoiceName": "IP block",
+            "familyName": "ip",
+            "details": {
+                "product": {
                     "name": "ip-block-2025",
-                    "planCode": "ip-block-2025-monthly",
-                    "pricings": [
+                    "description": "IP block"
+                },
+                "pricings": {
+                    "default": [
                         {
-                            "duration": "P1M",
-                            "pricingMode": "default",
+                            "capacities": ["renew"],
                             "description": "monthly renewal",
+                            "interval": 1,
+                            "intervalUnit": "month",
                             "price": {
                                 "currencyCode": "EUR",
                                 "text": "5.00 €",
                                 "value": 5.0
                             },
-                            "priceInUtv": 500,
-                            "tax": {
-                                "mode": "vat-excluded"
-                            }
+                            "priceInUcents": 500000000
                         }
                     ]
                 }
-            ]
+            }
         }
-    ],
-    "structures": [],
-    "addonsFamilies": []
+    ]
 }

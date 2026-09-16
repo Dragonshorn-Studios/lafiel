@@ -38,7 +38,7 @@ final class OvhCredentialSchema implements CredentialSchema
 
     public static function help(): string
     {
-        return 'Create an OVHcloud API application, then delegate the smallest read-only rights — GET on: /me (identity and connection test), /services and /service/* (inventory and renewal quotes), /order/catalog/formatted/* (fallback pricing), and /me/bill* (invoice history, once billing sync ships). Lafiel never calls a mutating OVH endpoint — no create, renew, scale, or delete.';
+        return 'Create an OVHcloud API application, then delegate the smallest read-only rights — GET on: /me (identity and connection test), /services and /services/* (inventory and contracted billing), /service/* (solo /renew fallback), /order/catalog/formatted/* (last-resort fallback pricing), and /me/bill* (invoice history, once billing sync ships). Lafiel never calls a mutating OVH endpoint — no create, renew, scale, or delete.';
     }
 
     public static function helpUrl(): string

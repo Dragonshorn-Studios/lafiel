@@ -1,30 +1,37 @@
 # OVH fixtures — SYNTHETIC, redacted
 
-**These captures are synthetic.** They are shaped from the public OVHcloud
-API documentation and use invented service names and ids; no real account
-was read to produce them. They exist so the OVH adapter tests can run
-without credentials. Before any OVH estimate is trusted, regenerate this
-directory from a real read-only account spike (see `docs/integrations.md`,
-"Required real-account spike") and confirm the shapes still match.
+**These captures are synthetic.** They follow the published OVHcloud
+API schemas (`GET /services` → `long[]`, `GET /services/{id}` →
+`services.expanded.Service`, `GET /service/{id}/renew` →
+`service.renew.RenewDescription[]`, formatted vps/ip catalogs →
+`order.catalog.Catalog`) and use invented service names and ids; no
+real account was read to produce them. They exist so the OVH adapter
+tests can run without credentials. Before any OVH estimate is trusted,
+regenerate this directory from a real read-only account spike (see
+`docs/integrations.md`, "Required real-account spike") and confirm the
+shapes still match.
 
 ## The required cases
 
 | Case | Fixtures |
 | --- | --- |
-| Ordinary priced service | `service-renew/400010002.json` (a single-service strategy with a selected price) |
-| Multi-service strategy | `service-renew/400010001.json` — one strategy covers the VPS (`400010001`) and its failover IP (`400010005`); one fact carries the summed price linked to both services, never a copy per service. `service-renew/400010005.json` carries the same payload — sibling members of a strategy each get a copy, and the adapter must emit the strategy once |
-| Public Cloud coverage gap | `service-renew/400010003.json` (no selected price; a Public Cloud project is never priced from the public catalog — its cost is an explicit unknown) |
-| Catalog fallback | `service-renew/400010004.json` (no selected price) + `catalog/ip-eu.json` product `ip-block-2025` (the fallback estimate; remove the product to model a missing fallback match) |
+| Ordinary priced service | `services/400010002.json` — contracted `billing.pricing` (`priceInUcents`) |
+| Sibling services billed separately | `services/400010001.json` (VPS 7.00) and `services/400010005.json` (failover IP 2.00). Official `/renew` payloads still list a bundled 9.00 order preview; the adapter must not use that preview as either service's charge |
+| Public Cloud coverage gap | `services/400010003.json` (`pricingType: consumption`) — never catalog-priced |
+| Catalog fallback | `services/400010004.json` (no `billing.pricing`, empty `/renew`) + `catalog/ip-eu.json` plan `ip-block-2025` |
 | Missing on the next complete run | service `400010004` appears in `services-run-a.json` but not in `services-run-b.json` (both complete runs) |
+
+Published `route.path` values used by classification tests (mutated on the VPS fixture, not extra files): `GET /domain/{serviceName}`, `GET /hosting/web/{serviceName}`, `GET /ipLoadbalancing/{serviceName}`. `/ip` must not match `/ipLoadbalancing`. There is no `/domain/name` API.
 
 ## Layout
 
 Files mirror the API paths an adapter reads:
 
 - `me.json` — `GET /me` (identity: subsidiary, currency, connection test)
-- `services-run-a.json`, `services-run-b.json` — `GET /services` listings (complete inventory runs)
-- `service-renew/{serviceId}.json` — `GET /service/{serviceId}/renew` renewal strategies
-- `catalog/{catalogName}.json` — `GET /order/catalog/formatted/{catalogName}` (fallback pricing only)
+- `services-run-a.json`, `services-run-b.json` — `GET /services` id lists
+- `services/{serviceId}.json` — `GET /services/{serviceId}` expanded service
+- `service-renew/{serviceId}.json` — `GET /service/{serviceId}/renew` possible order combinations (fallback only)
+- `catalog/{catalogName}.json` — `GET /order/catalog/formatted/{catalogName}` (`order.catalog.Catalog`, last-resort estimate)
 
 ## Redaction rules
 

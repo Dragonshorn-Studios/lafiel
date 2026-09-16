@@ -1,0 +1,73 @@
+{
+    "serviceId": 400010001,
+    "parentServiceId": null,
+    "resource": {
+        "displayName": "vps-synthetic-01",
+        "name": "vps-synthetic-01",
+        "state": "active",
+        "product": {
+            "name": "vps",
+            "description": "VPS Essentials 2025"
+        }
+    },
+    "route": {
+        "path": "/vps/{serviceName}",
+        "url": "/vps/vps-synthetic-01",
+        "vars": [
+            {
+                "key": "serviceName",
+                "value": "vps-synthetic-01"
+            }
+        ]
+    },
+    "billing": {
+        "expirationDate": null,
+        "nextBillingDate": "2026-10-15T09:24:31+01:00",
+        "plan": {
+            "code": "vps-essentials-2025",
+            "invoiceName": "VPS Essentials 2025"
+        },
+        "pricing": {
+            "capacities": ["renew"],
+            "description": "monthly renewal",
+            "duration": "P1M",
+            "interval": 1,
+            "price": {
+                "currencyCode": "EUR",
+                "text": "7.00 €",
+                "value": 7.0,
+                "priceInUcents": 700000000
+            },
+            "priceInUcents": 700000000,
+            "pricingMode": "default",
+            "pricingType": "rental"
+        },
+        "renew": {
+            "capacities": {
+                "mode": ["automatic", "manual"]
+            },
+            "current": {
+                "mode": "automatic",
+                "nextDate": "2026-10-15T09:24:31+01:00",
+                "period": "P1M"
+            }
+        },
+        "lifecycle": {
+            "capacities": {
+                "actions": ["earlyRenewal"]
+            },
+            "current": {
+                "creationDate": "2026-01-15T09:24:31+01:00",
+                "pendingActions": [],
+                "state": "active",
+                "terminationDate": null
+            }
+        },
+        "engagement": null,
+        "group": null
+    },
+    "customer": {
+        "contacts": []
+    },
+    "tags": []
+}

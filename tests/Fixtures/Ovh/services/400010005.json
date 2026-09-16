@@ -1,0 +1,73 @@
+{
+    "serviceId": 400010005,
+    "parentServiceId": 400010001,
+    "resource": {
+        "displayName": "failover-synthetic-01",
+        "name": "failover-synthetic-01",
+        "state": "active",
+        "product": {
+            "name": "ip",
+            "description": "Failover IP"
+        }
+    },
+    "route": {
+        "path": "/ip/{ip}",
+        "url": "/ip/failover-synthetic-01.example.eu.org",
+        "vars": [
+            {
+                "key": "ip",
+                "value": "failover-synthetic-01.example.eu.org"
+            }
+        ]
+    },
+    "billing": {
+        "expirationDate": null,
+        "nextBillingDate": "2026-10-15T09:24:31+01:00",
+        "plan": {
+            "code": "ip-failover-2025",
+            "invoiceName": "Failover IP"
+        },
+        "pricing": {
+            "capacities": ["renew"],
+            "description": "monthly renewal",
+            "duration": "P1M",
+            "interval": 1,
+            "price": {
+                "currencyCode": "EUR",
+                "text": "2.00 €",
+                "value": 2.0,
+                "priceInUcents": 200000000
+            },
+            "priceInUcents": 200000000,
+            "pricingMode": "default",
+            "pricingType": "rental"
+        },
+        "renew": {
+            "capacities": {
+                "mode": ["automatic", "manual"]
+            },
+            "current": {
+                "mode": "automatic",
+                "nextDate": "2026-10-15T09:24:31+01:00",
+                "period": "P1M"
+            }
+        },
+        "lifecycle": {
+            "capacities": {
+                "actions": []
+            },
+            "current": {
+                "creationDate": "2026-01-20T10:00:00+01:00",
+                "pendingActions": [],
+                "state": "active",
+                "terminationDate": null
+            }
+        },
+        "engagement": null,
+        "group": null
+    },
+    "customer": {
+        "contacts": []
+    },
+    "tags": []
+}

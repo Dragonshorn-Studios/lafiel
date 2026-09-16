@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Providers\Actions\ClearProviderSyncedData;
 use App\Domain\Providers\Actions\ConnectProviderAccount;
 use App\Domain\Providers\Actions\DeleteProviderAccount;
 use App\Domain\Providers\Actions\SetProviderAccountEnabled;
@@ -238,9 +239,32 @@ new #[Title('Providers')] class extends Component {
         Flux::toast(variant: 'success', text: __('Sync queued.'));
     }
 
+    /**
+     * Wipe discovered services, provider charges, and sync history
+     * while keeping the connection. Blocked while a sync is active.
+     */
+    public function clearSyncedData(int $accountId): void
+    {
+        $account = $this->account($accountId);
+
+        if (! app(ClearProviderSyncedData::class)->clear($account)) {
+            Flux::toast(variant: 'warning', text: __('A sync is still running for this account. Wait for it to finish, then try again.'));
+
+            return;
+        }
+
+        Flux::toast(variant: 'success', text: __('Synced data cleared. Credentials were kept — you can sync again from a clean slate.'));
+    }
+
     public function deleteAccount(int $accountId): void
     {
-        app(DeleteProviderAccount::class)->delete($this->account($accountId));
+        $account = $this->account($accountId);
+
+        if (! app(DeleteProviderAccount::class)->delete($account)) {
+            Flux::toast(variant: 'warning', text: __('A sync is still running for this account. Wait for it to finish, then try again.'));
+
+            return;
+        }
 
         unset($this->connectionChecks[$accountId]);
 
@@ -451,6 +475,12 @@ new #[Title('Providers')] class extends Component {
                             {{ $account->enabled ? __('Pause sync') : __('Resume sync') }}
                         </flux:button>
 
+                        <flux:modal.trigger name="clear-synced-{{ $account->id }}">
+                            <flux:button size="sm" variant="ghost" data-test="clear-synced-button">
+                                {{ __('Clear synced data') }}
+                            </flux:button>
+                        </flux:modal.trigger>
+
                         <flux:modal.trigger name="delete-provider-{{ $account->id }}">
                             <flux:button size="sm" variant="danger" data-test="delete-provider-button">
                                 {{ __('Disconnect') }}
@@ -459,13 +489,35 @@ new #[Title('Providers')] class extends Component {
                     </div>
                 </flux:card>
 
+                <flux:modal name="clear-synced-{{ $account->id }}" class="max-w-lg">
+                    <div class="space-y-6">
+                        <div>
+                            <flux:heading size="lg">{{ __('Clear synced data for :name?', ['name' => $account->display_name]) }}</flux:heading>
+
+                            <flux:subheading>
+                                {{ __('Discovered services, provider charges, and sync history for this account are permanently deleted. Credentials stay. Independent charges you entered by hand are kept. Then you can sync again from a clean slate.') }}
+                            </flux:subheading>
+                        </div>
+
+                        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
+                            <flux:modal.close>
+                                <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                            </flux:modal.close>
+
+                            <flux:button variant="danger" wire:click="clearSyncedData({{ $account->id }})" data-test="confirm-clear-synced">
+                                {{ __('Clear synced data') }}
+                            </flux:button>
+                        </div>
+                    </div>
+                </flux:modal>
+
                 <flux:modal name="delete-provider-{{ $account->id }}" class="max-w-lg">
                     <div class="space-y-6">
                         <div>
                             <flux:heading size="lg">{{ __('Disconnect :name?', ['name' => $account->display_name]) }}</flux:heading>
 
                             <flux:subheading>
-                                {{ __('The stored credentials, discovered services, and sync history for this account are permanently deleted. Costs you entered by hand are kept.') }}
+                                {{ __('The stored credentials, discovered services, provider charges, and sync history for this account are permanently deleted. Independent charges you entered by hand are kept.') }}
                             </flux:subheading>
                         </div>
 

@@ -1,0 +1,73 @@
+{
+    "serviceId": 400010003,
+    "parentServiceId": null,
+    "resource": {
+        "displayName": "cloud-project-synthetic-01",
+        "name": "cloud-project-synthetic-01",
+        "state": "active",
+        "product": {
+            "name": "cloud",
+            "description": "Public Cloud project"
+        }
+    },
+    "route": {
+        "path": "/cloud/project/{serviceName}",
+        "url": "/cloud/project/cloud-project-synthetic-01",
+        "vars": [
+            {
+                "key": "serviceName",
+                "value": "cloud-project-synthetic-01"
+            }
+        ]
+    },
+    "billing": {
+        "expirationDate": null,
+        "nextBillingDate": null,
+        "plan": {
+            "code": "project-2025",
+            "invoiceName": "Public Cloud project"
+        },
+        "pricing": {
+            "capacities": ["consumption"],
+            "description": "usage",
+            "duration": "P1M",
+            "interval": 1,
+            "price": {
+                "currencyCode": "EUR",
+                "text": "0.00 €",
+                "value": 0.0,
+                "priceInUcents": 0
+            },
+            "priceInUcents": 0,
+            "pricingMode": "default",
+            "pricingType": "consumption"
+        },
+        "renew": {
+            "capacities": {
+                "mode": ["automatic"]
+            },
+            "current": {
+                "mode": "automatic",
+                "nextDate": null,
+                "period": "P1M"
+            }
+        },
+        "lifecycle": {
+            "capacities": {
+                "actions": []
+            },
+            "current": {
+                "creationDate": "2026-03-08T11:47:52+01:00",
+                "pendingActions": [],
+                "state": "active",
+                "terminationDate": null
+            }
+        },
+        "engagement": null,
+        "group": null
+    },
+    "customer": {
+        "contacts": []
+    },
+    "tags": []
+}

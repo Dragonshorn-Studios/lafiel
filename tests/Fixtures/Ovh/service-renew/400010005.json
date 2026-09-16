@@ -1,59 +1,44 @@
-{
-    "services": [
-        {
-            "serviceId": 400010001,
-            "serviceName": "vps-synthetic-01",
-            "selectedPrice": "vps-essentials-2025 P1M",
-            "renew": {
-                "automatic": true,
-                "forced": false,
-                "manualPayment": false,
-                "period": "P1M",
-                "renew": "automatic"
-            }
-        },
-        {
-            "serviceId": 400010005,
-            "serviceName": "failover-synthetic-01",
-            "selectedPrice": "ip-failover-2025 P1M",
-            "renew": {
-                "automatic": true,
-                "forced": false,
-                "manualPayment": false,
-                "period": "P1M",
-                "renew": "automatic"
-            }
-        }
-    ],
-    "options": [],
-    "prices": [
-        {
-            "label": "vps-essentials-2025 P1M",
-            "description": "renew vps-synthetic-01 for one month",
-            "duration": "P1M",
-            "price": {
-                "currencyCode": "EUR",
-                "text": "7.00",
-                "value": 7.0
+[
+    {
+        "renewPeriod": "P1M",
+        "strategies": [
+            {
+                "services": [400010005],
+                "price": {
+                    "currencyCode": "EUR",
+                    "text": "2.00 €",
+                    "value": 2.0
+                },
+                "priceInUcents": 200000000,
+                "servicesDetails": [
+                    {
+                        "serviceId": 400010005,
+                        "serviceName": "failover-synthetic-01",
+                        "serviceType": "Failover IP"
+                    }
+                ]
             },
-            "priceInUtv": 700,
-            "tax": {
-                "mode": "vat-excluded"
+            {
+                "services": [400010001, 400010005],
+                "price": {
+                    "currencyCode": "EUR",
+                    "text": "9.00 €",
+                    "value": 9.0
+                },
+                "priceInUcents": 900000000,
+                "servicesDetails": [
+                    {
+                        "serviceId": 400010001,
+                        "serviceName": "vps-synthetic-01",
+                        "serviceType": "VPS Essentials"
+                    },
+                    {
+                        "serviceId": 400010005,
+                        "serviceName": "failover-synthetic-01",
+                        "serviceType": "Failover IP"
+                    }
+                ]
             }
-        },
-        {
-            "label": "ip-failover-2025 P1M",
-            "description": "renew failover-synthetic-01 for one month",
-            "duration": "P1M",
-            "price": {
-                "currencyCode": "EUR",
-                "text": "2.00",
-                "value": 2.0
-            },
-            "priceInUtv": 200,
-            "tax": {
-                "mode": "vat-excluded"
-            }
-        }
-    ]
-}
+        ]
+    }
+]

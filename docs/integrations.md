@@ -44,28 +44,38 @@ Fields: vendor/provider, name, category, known/unknown amount, currency, period,
 
 ### Capabilities
 
-- inventory: required, discovered through the common Services API (`GET /services`);
-- renewal quotes: required where available, read from `GET /service/{serviceId}/renew`;
-- usage and invoice actuals: not implemented yet — Public Cloud resource usage is the main gap and is reported as unsupported, never as a known zero.
+- inventory: required, discovered through the common Services API: `GET /services` returns numeric ids, then `GET /services/{id}` loads each `services.expanded.Service`;
+- renewal quotes: required where available, taken from that expanded service's `billing.pricing` (the contracted plan). `GET /service/{id}/renew` is only a fallback, and only a solo strategy for the configured period is accepted;
+- usage and invoice actuals: not implemented yet — Public Cloud resource usage is the main gap and is reported as unsupported, never as a known zero. `/me/bill*` remains reserved.
 
-The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and the product route are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id. Provider lifecycle fields live in `services.metadata`, a column owned by the provider adapter and overwritten wholesale on every sync; nothing else may shape it.
+The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and `route.path` are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id. Provider lifecycle fields live in `services.metadata`, a column owned by the provider adapter and overwritten wholesale on every sync; nothing else may shape it.
+
+OVH publishes two overlapping families, plus a third `services.Service` shape on every product's `/serviceInfos` endpoint. Only the plural `/services` family is inventory:
+
+- `GET /services` → `long[]` of ids (filters exist; there is no pagination). `GET /services/{id}` → `services.expanded.Service`: nested `resource`, `route` (object with `path`/`url`/`vars`, never a string), `billing.plan`, `billing.pricing` (`services.billing.Pricing`: `pricingType` `consumption|purchase|rental`, `capacities` including `renew`, `priceInUcents` in micro-cents), `billing.renew.current.mode` (`automatic|manual`), `billing.nextBillingDate`.
+- `GET /service` (singular, beta) also returns `long[]`, but `GET /service/{id}` is a *different* type (`serviceList.Service`) whose `renew.mode` enum is the old `automaticV2016` family — not used. The useful singular read is `GET /service/{id}/renew` → `service.renew.RenewDescription[]` of *possible order combinations*, not the current charge.
+- Product `/serviceInfos` (`GET /vps/{name}/serviceInfos`, …) returns yet another `services.Service` (quantity, `renewalType`). It is not the inventory surface.
+
+Treating `/renew` as the price (or treating `/services` as an object listing with `selectedPrice` / `priceInUtv`) is what made imported amounts wrong. Classification uses published product `route.path` prefixes (`GET /domain/{serviceName}`, `GET /hosting/web`, `GET /ipLoadbalancing` before `GET /ip`); there is no `/domain/name` API. A service whose expanded `billing.lifecycle.current.state` is `terminated` stays in inventory without a quote — `GET /services` can still list it.
 
 ### Renewal quotes and pricing sources
 
-- A renewal strategy from `/service/{serviceId}/renew` is a quote/estimate, never an invoice actual.
-- A strategy covering multiple services is one cost item related to all covered services; the strategy price is never duplicated per service (`shared_unallocated`).
-- If the strategy's price choice is ambiguous, the price stays unknown with a warning — it is never guessed.
-- The public formatted catalog is a fallback estimate only, marked as such in the charge notes, and is requested for the account's own subsidiary and checked against its currency (both read from `/me`). A missing or ambiguous catalog match warns and degrades the run.
-- Public Cloud projects are never catalog-priced: their real cost comes from resources and usage, which is a separate unsupported capability. A project's price is an explicit unknown plus a standing warning.
-- The next-billing date is deliberately not derived from `renew.deleteAt`; no renewal rows are written until a reliable date source exists (see `docs/operations.md`).
+- One fact per inventoried service. Sibling services that OVH would bundle on a purchase order (a VPS and its failover IP) keep their own `billing.pricing` amounts; they are never merged into one `shared_unallocated` charge.
+- `billing.pricing` is a quote/estimate of the contracted plan, never an invoice actual. Amounts use `priceInUcents` (micro-cents: 1 EUR = 100_000_000 ucents).
+- `GET /service/{id}/renew` is consulted only when `billing.pricing` is missing. A multi-service strategy is an order preview and is never used as that service's charge — it would mix in other services' prices. Several solo strategies for the same period are ambiguous and stay unknown.
+- The public formatted catalog (`order.catalog.Catalog` for vps/ip) is a last-resort estimate only, marked as such in the charge notes, and is requested for the account's own subsidiary and checked against its currency (both read from `/me`). Domain formatted catalogs are a different paginated TLD shape and are not used as fallback. A missing or ambiguous catalog match warns and degrades the run.
+- Public Cloud projects (`pricingType: consumption`) are never catalog-priced and never take a `/renew` order preview: their real cost comes from resources and usage, which is a separate unsupported capability. A project's price is an explicit unknown plus a standing warning.
+- `billing.nextBillingDate` (falling back to `billing.renew.current.nextDate`) is the renewal date; `billing.renew.current.mode` is auto-renew (`automatic`/`manual` on the expanded service — not the singular `automaticV2016` enum). Cadences OVH expresses that Lafiel has no period for (`P6M`, `P2Y`, `P3Y`) stay `unknown` with a warning.
+- A `terminated` expanded lifecycle is not quoted, even when `billing.pricing` is still present. Options are inventoried only when they appear on `GET /services` (they carry `parentServiceId`); `GET /services/{id}/options` is not a second listing.
 
 ### Credentials
 
 Use the smallest read-only rights, provide a connection test, encrypt at rest, and redact logs. No OVH mutating endpoint belongs in Lafiel, and the adapter client can only express GET. Minimum delegated rights — GET on:
 
 - `/me` (identity: subsidiary, currency, connection test);
-- `/services` and `/service/*` (inventory, renewal strategies);
-- `/order/catalog/formatted/*` (fallback pricing);
+- `/services` and `/services/*` (inventory and contracted billing);
+- `/service/*` (solo `/renew` fallback);
+- `/order/catalog/formatted/*` (last-resort fallback pricing);
 - `/me/bill*` (invoice history, reserved for the billing sync).
 
 ### Required real-account spike
