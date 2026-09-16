@@ -164,6 +164,38 @@ it('maps one renewal estimate per inventoried service', function () {
         ->and($byRef['ovh:renewal:ip-synthetic-01']->amount)->toBeNull();
 });
 
+it('leaves the price unknown when a service offer is not a string', function () {
+    $api = ovhQuoteFake();
+    $api->responses['/service/vps-synthetic-01']['offer'] = ['vps-essentials-2025'];
+
+    $adapter = new OvhProviderAdapter(new class($api) extends BuildOvhApi
+    {
+        public function __construct(private readonly OvhApi $api) {}
+
+        public function build(array $payload): OvhApi
+        {
+            return $this->api;
+        }
+    });
+
+    $context = new SyncContext(
+        ProviderAccount::factory()->create(),
+        ovhPayload(),
+        new CarbonImmutable('2026-09-11 10:00:00'),
+    );
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    app(ValidateBatches::class)->costFacts($costs, $inventory);
+
+    $byRef = collect($costs->facts)->keyBy(fn ($fact) => $fact->sourceRef);
+
+    // A non-string offer matches no plan: the price stays unknown —
+    // an honest gap, not a degraded fetch and never a crash.
+    expect($byRef['ovh:renewal:vps-synthetic-01']->amount)->toBeNull()
+        ->and($costs->completeness)->toBe(BatchCompleteness::Complete);
+});
+
 it('degrades the renewal capability when a catalog fetch fails', function () {
     // The service stays inventoried, so a failed pricing lookup must
     // surface as an unknown price over partial coverage — not as an
