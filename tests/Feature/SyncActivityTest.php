@@ -228,18 +228,25 @@ it('hints that a long-queued run may be abandoned', function () {
 
 it('paginates the history and resets the page when a filter changes', function () {
     $account = ProviderAccount::factory()->create();
-    SyncRun::factory()->for($account)->count(20)->create();
+
+    // Trigger markers instead of run ids: the autoincrement counter is
+    // shared with every other test in the process, so ids are not stable.
+    SyncRun::factory()->for($account)->count(20)->sequence(
+        fn ($sequence) => ['trigger' => sprintf('marker %02d', $sequence->index + 1)],
+    )->create();
 
     $page = syncsPage()
-        ->assertSee('#20')
-        ->assertDontSee('#5');
+        ->assertSee('marker 20')
+        ->assertDontSee('marker 05')
+        ->assertDontSee('marker 01');
 
     $page->call('setPage', 2)
-        ->assertSee('#5')
-        ->assertDontSee('#20');
+        ->assertSee('marker 05')
+        ->assertSee('marker 01')
+        ->assertDontSee('marker 20');
 
     // Filtering from page 2 lands back on page 1 of the filtered set.
     $page->set('accountFilter', (string) $account->id)
-        ->assertSee('#20')
-        ->assertDontSee('#5');
+        ->assertSee('marker 20')
+        ->assertDontSee('marker 05');
 });
