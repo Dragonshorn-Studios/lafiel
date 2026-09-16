@@ -12,7 +12,7 @@ directory from a real read-only account spike (see `docs/integrations.md`,
 | Case | Fixtures |
 | --- | --- |
 | Ordinary priced service | `service-renew/400010002.json` (a single-service strategy with a selected price) |
-| Multi-service strategy | `service-renew/400010001.json` — one strategy covers the VPS (`400010001`) and its failover IP (`400010005`); one fact carries the summed price linked to both services, never a copy per service |
+| Multi-service strategy | `service-renew/400010001.json` — one strategy covers the VPS (`400010001`) and its failover IP (`400010005`); one fact carries the summed price linked to both services, never a copy per service. `service-renew/400010005.json` carries the same payload — sibling members of a strategy each get a copy, and the adapter must emit the strategy once |
 | Public Cloud coverage gap | `service-renew/400010003.json` (no selected price; a Public Cloud project is never priced from the public catalog — its cost is an explicit unknown) |
 | Catalog fallback | `service-renew/400010004.json` (no selected price) + `catalog/ip-eu.json` product `ip-block-2025` (the fallback estimate; remove the product to model a missing fallback match) |
 | Missing on the next complete run | service `400010004` appears in `services-run-a.json` but not in `services-run-b.json` (both complete runs) |

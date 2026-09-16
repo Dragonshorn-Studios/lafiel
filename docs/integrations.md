@@ -48,7 +48,7 @@ Fields: vendor/provider, name, category, known/unknown amount, currency, period,
 - renewal quotes: required where available, read from `GET /service/{serviceId}/renew`;
 - usage and invoice actuals: not implemented yet — Public Cloud resource usage is the main gap and is reported as unsupported, never as a known zero.
 
-The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and the product route are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id.
+The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and the product route are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id. Provider lifecycle fields live in `services.metadata`, a column owned by the provider adapter and overwritten wholesale on every sync; nothing else may shape it.
 
 ### Renewal quotes and pricing sources
 

@@ -163,9 +163,214 @@ it('never duplicates a multi-service strategy price onto each service', function
         ->filter(fn ($fact) => in_array('400010001', $fact->serviceExternalIds, true));
 
     expect($covering)->toHaveCount(1)
+        ->and($covering->first()->sourceRef)->toBe('ovh:renew:400010001+400010005')
         ->and($covering->first()->serviceExternalIds)->toBe(['400010001', '400010005'])
         ->and($covering->first()->amount?->amountMinor)->toBe(900)
-        ->and($covering->first()->allocationState)->toBe(AllocationState::SharedUnallocated);
+        ->and($covering->first()->allocationState)->toBe(AllocationState::SharedUnallocated)
+        ->and($costs->facts)->toHaveCount(4);
+});
+
+it('keeps an odd strategy payload from reading as cancellation', function () {
+    // The payload lists no services: the service keeps its own unknown
+    // quote, so the charge stays reported and no ending pass can treat
+    // the odd payload as a cancellation.
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew'] = ['services' => [], 'options' => [], 'prices' => []];
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    expect($zone)->not->toBeNull()
+        ->and($zone->serviceExternalIds)->toBe(['400010002'])
+        ->and($zone->amount)->toBeNull()
+        ->and($costs->warnings)->not->toContain('renewal strategy for [400010002] covers none of this run\'s services; price left unknown.');
+});
+
+it('warns when a strategy lists only services outside the inventory', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew']['services'][0]['serviceId'] = 999999999;
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    expect($zone->serviceExternalIds)->toBe(['400010002'])
+        ->and($zone->amount)->toBeNull()
+        ->and($costs->warnings)->toContain('renewal strategy for [400010002] covers none of this run\'s services; price left unknown.');
+});
+
+it('links only covered services and reads the period from them', function () {
+    $api = ovhServicesFake();
+
+    // A foreign entry speaks first with an annual period and no
+    // auto-renew; the fact must take period and flag from the covered
+    // services only.
+    $vpsRenew = &$api->responses['/service/400010001/renew'];
+    array_unshift($vpsRenew['services'], [
+        'serviceId' => 999999999,
+        'serviceName' => 'foreign-synthetic-01',
+        'selectedPrice' => 'vps-essentials-2025 P1M',
+        'renew' => ['automatic' => false, 'period' => 'P12M'],
+    ]);
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $combined = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010001+400010005');
+
+    expect($combined->serviceExternalIds)->toBe(['400010001', '400010005'])
+        ->and($combined->amount?->amountMinor)->toBe(900)
+        ->and($combined->period->value)->toBe('monthly')
+        ->and($combined->autoRenew)->toBeTrue()
+        ->and($costs->warnings)->toContain('renewal strategy for [400010001] covers [999999999], which is outside this run\'s inventory; it is not linked.');
+});
+
+it('refuses to sum strategy prices from different duration buckets', function () {
+    $api = ovhServicesFake();
+
+    // The failover part renews annually; summing it into a monthly
+    // fact would overstate monthly spend.
+    $api->responses['/service/400010001/renew']['prices'][1]['duration'] = 'P12M';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $combined = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010001+400010005');
+
+    // The unusable strategy degrades, and the public catalog takes over
+    // as a marked fallback estimate for the VPS plan alone.
+    expect($combined->amount?->amountMinor)->toBe(700)
+        ->and($combined->notes)->toBe('public catalog fallback; an estimate, not the account price.')
+        ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($costs->warnings)->toContain('renewal price for [400010001] mixes renewal periods; left unknown.');
+});
+
+it('refuses to sum strategy prices in different currencies', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010001/renew']['prices'][1]['price']['currencyCode'] = 'USD';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $combined = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010001+400010005');
+
+    // Mixed currencies throw out of the exact-money sum; the public
+    // catalog takes over as a marked fallback estimate.
+    expect($combined->amount?->amountMinor)->toBe(700)
+        ->and($combined->notes)->toBe('public catalog fallback; an estimate, not the account price.')
+        ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($costs->warnings)->toContain('renewal price for [400010001] could not be parsed; left unknown.');
+});
+
+it('warns when a selected price label has no price part', function () {
+    $api = ovhServicesFake();
+    array_shift($api->responses['/service/400010002/renew']['prices']);
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    expect($zone->amount)->toBeNull()
+        ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($costs->warnings)->toContain('renewal price [zone-2025 P1M] selected for [400010002] has no price part; price left unknown.');
+});
+
+it('prices a strategy that selects nothing but carries exactly one price', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew']['services'][0]['selectedPrice'] = null;
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    expect($zone->amount?->amountMinor)->toBe(149)
+        ->and($zone->notes)->toBe('renewal quote from the service renewal strategy.');
+});
+
+it('keeps an unknown tax basis when a strategy price is not vat-excluded', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew']['prices'][0]['tax']['mode'] = 'vat-included';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    expect($zone->amount?->amountMinor)->toBe(149)
+        ->and($zone->taxBasis)->toBe(TaxBasis::Unknown);
+});
+
+it('warns when a strategy price is not in the account currency', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew']['prices'][0]['price']['currencyCode'] = 'USD';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $zone = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002');
+
+    // A foreign currency is surfaced, not silently converted — and it
+    // is a warning, not a coverage gap.
+    expect($zone->amount?->currency)->toBe('USD')
+        ->and($costs->completeness)->toBe(BatchCompleteness::Complete)
+        ->and($costs->warnings)->toContain('renewal price for [400010002] is in USD, not the account currency EUR.');
+});
+
+it('treats a malformed strategy body as a failed fetch', function () {
+    $api = ovhServicesFake();
+    $api->responses['/service/400010002/renew'] = 'not-a-list';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    expect(collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:renew:400010002'))->toBeNull()
+        ->and($costs->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($costs->warnings)->toContain('renewal quote unavailable for [400010002]; the strategy fetch failed.');
 });
 
 it('requests the catalog for the account subsidiary from /me', function () {

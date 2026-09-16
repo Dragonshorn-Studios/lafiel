@@ -6,49 +6,9 @@ use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
-use App\Domain\Providers\Ovh\BuildOvhApi;
-use App\Domain\Providers\Ovh\OvhApi;
-use App\Domain\Providers\Ovh\OvhProviderAdapter;
 use App\Domain\Sync\Validation\ValidateBatches;
 use Carbon\CarbonImmutable;
 use Tests\Fakes\FakeOvhApi;
-
-/**
- * An adapter wired to the given fake API client.
- */
-function ovhAdapter(FakeOvhApi $api): OvhProviderAdapter
-{
-    return new OvhProviderAdapter(new class($api) extends BuildOvhApi
-    {
-        public function __construct(private readonly OvhApi $api) {}
-
-        public function build(array $payload): OvhApi
-        {
-            return $this->api;
-        }
-    });
-}
-
-/**
- * The complete run A inventory: the fake serves the /me identity, the
- * run A /services listing, one renewal strategy per listed service,
- * and the family catalogs for fallback pricing.
- */
-function ovhServicesFake(string $listing = 'services-run-a.json'): FakeOvhApi
-{
-    $services = ovhFixture($listing);
-    $responses = ['/me' => ovhFixture('me.json'), '/services' => $services];
-
-    foreach ($services as $service) {
-        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
-    }
-
-    $responses['/order/catalog/formatted/vps'] = ovhFixture('catalog/vps-eu.json');
-    $responses['/order/catalog/formatted/domain'] = ovhFixture('catalog/domain-eu.json');
-    $responses['/order/catalog/formatted/ip'] = ovhFixture('catalog/ip-eu.json');
-
-    return new FakeOvhApi($responses);
-}
 
 function ovhContext(ProviderAccount $account): SyncContext
 {

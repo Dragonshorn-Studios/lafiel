@@ -172,6 +172,10 @@ final class OvhProviderAdapter implements ProviderAdapter
             ->map(fn (InventoryItem $item): string => $item->externalId)
             ->all();
 
+        // Sibling services can carry identical copies of one strategy
+        // payload; the covered-set reference dedupes them to one fact.
+        $emittedRefs = [];
+
         foreach ($inventory->items as $item) {
             try {
                 $renew = $api->get('/service/'.$item->externalId.'/renew');
@@ -190,24 +194,38 @@ final class OvhProviderAdapter implements ProviderAdapter
                 continue;
             }
 
-            $strategy = $this->strategy($renew, $item, $inventoryIds, $warnings);
+            [$coveredIds, $selectedLabels, $period, $autoRenew, $usable] = $this->strategy($renew, $item, $inventoryIds, $warnings);
 
-            if ($strategy === null) {
+            $sourceRef = 'ovh:renew:'.implode('+', $coveredIds);
+
+            if (isset($emittedRefs[$sourceRef])) {
                 continue;
             }
 
-            [$coveredIds, $selectedLabels, $period, $autoRenew] = $strategy;
+            $emittedRefs[$sourceRef] = true;
 
             $amount = null;
             $taxBasis = TaxBasis::Unknown;
             $notes = null;
 
             try {
-                [$parts, $ambiguous] = $this->selectedPrice($renew, $selectedLabels);
+                $parts = null;
+                $ambiguous = false;
+
+                if ($usable) {
+                    [$parts, $ambiguous] = $this->selectedPrice($renew, $selectedLabels, $item->externalId, $warnings);
+                }
 
                 if ($parts !== null) {
-                    [$amount, $taxBasis] = $this->priceFromParts($parts);
-                    $notes = 'renewal quote from the service renewal strategy.';
+                    if ($this->mixesPeriods($parts, $period)) {
+                        // Prices from different duration buckets must
+                        // never be summed under one period.
+                        $degraded = true;
+                        $warnings[] = "renewal price for [{$item->externalId}] mixes renewal periods; left unknown.";
+                    } else {
+                        [$amount, $taxBasis] = $this->priceFromParts($parts);
+                        $notes = 'renewal quote from the service renewal strategy.';
+                    }
                 } elseif ($ambiguous) {
                     $degraded = true;
                     $warnings[] = "renewal price for [{$item->externalId}] is ambiguous; left unknown.";
@@ -265,7 +283,7 @@ final class OvhProviderAdapter implements ProviderAdapter
             }
 
             $facts[] = new CostFact(
-                sourceRef: 'ovh:renew:'.implode('+', $coveredIds),
+                sourceRef: $sourceRef,
                 serviceExternalIds: $coveredIds,
                 sourceKind: SourceKind::RenewalQuote,
                 chargeKind: ChargeKind::RecurringFixed,
@@ -385,12 +403,19 @@ final class OvhProviderAdapter implements ProviderAdapter
     }
 
     /**
-     * @return array{0: list<string>, 1: list<string>, 2: Period, 3: bool}|null
-     *                                                                          the covered inventory ids, the selected price labels,
-     *                                                                          the renewal period, and the auto-renew flag — null
-     *                                                                          when the strategy covers none of this run's services
+     * The renewal strategy for one inventory item: the covered
+     * inventory ids, the selected price labels, the renewal period,
+     * and the auto-renew flag. Every inventoried service gets a
+     * strategy — an odd or empty payload yields a single-service
+     * unknown fallback — so a service still in inventory always has a
+     * reported charge and its absence can never read as cancellation.
+     *
+     * @param  list<string>  $inventoryIds
+     * @return array{0: list<string>, 1: list<string>, 2: Period, 3: bool, 4: bool}
+     *                                                                              the last flag marks whether the payload described a
+     *                                                                              strategy this run can price at all
      */
-    private function strategy(array $renew, InventoryItem $item, array $inventoryIds, array &$warnings): ?array
+    private function strategy(array $renew, InventoryItem $item, array $inventoryIds, array &$warnings): array
     {
         $covered = [];
         $labels = [];
@@ -429,17 +454,17 @@ final class OvhProviderAdapter implements ProviderAdapter
         $covered = array_values(array_unique($covered));
         sort($covered, SORT_NUMERIC);
 
-        // An empty strategy payload simply quotes nothing; a payload
-        // that lists services but none of this run's is a gap worth
-        // surfacing.
-        if ($listed === 0) {
-            return null;
-        }
-
+        // An empty strategy payload quotes nothing; a payload that
+        // lists services but none of this run's is a gap worth
+        // surfacing. Both keep the service's own unknown quote alive,
+        // so a service still in inventory always has a reported charge
+        // and its absence can never read as cancellation.
         if ($covered === [] || ! in_array($item->externalId, $covered, true)) {
-            $warnings[] = "renewal strategy for [{$item->externalId}] covers none of this run's services; no quote is built.";
+            if ($listed > 0) {
+                $warnings[] = "renewal strategy for [{$item->externalId}] covers none of this run's services; price left unknown.";
+            }
 
-            return null;
+            return [[$item->externalId], [], Period::Unknown, false, false];
         }
 
         $labels = array_values(array_unique($labels));
@@ -447,19 +472,25 @@ final class OvhProviderAdapter implements ProviderAdapter
         return [
             $covered,
             $labels,
-            $this->renewalPeriod($this->configuredPeriod($renew)),
-            $this->autoRenewOf($renew),
+            $this->renewalPeriod($this->configuredPeriod($renew, $covered)),
+            $this->autoRenewOf($renew, $covered),
+            true,
         ];
     }
 
     /**
      * The renewal period the account configured, taken from the first
-     * strategy service that expresses one.
+     * covered strategy service that expresses one — entries pointing
+     * outside this run's inventory never speak for the fact.
      */
-    private function configuredPeriod(array $renew): mixed
+    private function configuredPeriod(array $renew, array $covered): mixed
     {
         foreach ((array) ($renew['services'] ?? []) as $entry) {
-            $period = is_array($entry) ? ($entry['renew']['period'] ?? null) : null;
+            if (! is_array($entry) || ! in_array((string) ($entry['serviceId'] ?? ''), $covered, true)) {
+                continue;
+            }
+
+            $period = $entry['renew']['period'] ?? null;
 
             if (is_string($period) && $period !== '') {
                 return $period;
@@ -469,10 +500,14 @@ final class OvhProviderAdapter implements ProviderAdapter
         return null;
     }
 
-    private function autoRenewOf(array $renew): bool
+    private function autoRenewOf(array $renew, array $covered): bool
     {
         foreach ((array) ($renew['services'] ?? []) as $entry) {
-            if (is_array($entry) && ($entry['renew']['automatic'] ?? null) === true) {
+            if (! is_array($entry) || ! in_array((string) ($entry['serviceId'] ?? ''), $covered, true)) {
+                continue;
+            }
+
+            if (($entry['renew']['automatic'] ?? null) === true) {
                 return true;
             }
         }
@@ -485,13 +520,14 @@ final class OvhProviderAdapter implements ProviderAdapter
      * label's price, or — when the payload selects nothing but carries
      * exactly one price — that price. A payload with several prices and
      * no selection is ambiguous; the flag is reported and the price
-     * stays unknown rather than guessed.
+     * stays unknown rather than guessed. A selected label with no price
+     * part is a provider payload gap and is warned about.
      *
      * @param  list<string>  $selectedLabels
      * @return array{0: list<array<string, mixed>>|null, 1: bool} the
      *                                                            price parts (null when unusable) and the ambiguity flag
      */
-    private function selectedPrice(array $renew, array $selectedLabels): array
+    private function selectedPrice(array $renew, array $selectedLabels, string $serviceId, array &$warnings): array
     {
         $prices = [];
 
@@ -513,8 +549,8 @@ final class OvhProviderAdapter implements ProviderAdapter
 
         foreach ($selectedLabels as $label) {
             if (! isset($prices[$label])) {
-                // A selected plan without a price part is a provider
-                // payload gap; treat it like an absent price.
+                $warnings[] = "renewal price [{$label}] selected for [{$serviceId}] has no price part; price left unknown.";
+
                 return [null, false];
             }
 
@@ -525,13 +561,45 @@ final class OvhProviderAdapter implements ProviderAdapter
     }
 
     /**
-     * The selected price parts summed into one exact amount. Part
-     * prices must share one currency; `priceInUtv` is the exact
-     * integer minor-unit price and is preferred wherever every part
-     * carries it. The decimal `price.value` is a JSON float and only
-     * ever reaches Money through PHP's float rendering, so it is the
-     * fallback, and anything Money cannot express exactly throws to
-     * the caller's unknown-price path.
+     * Whether the selected parts span duration buckets the fact's
+     * single renewal period cannot express. Prices without a duration
+     * and an unresolvable period are not judged.
+     *
+     * @param  list<array<string, mixed>>  $parts
+     */
+    private function mixesPeriods(array $parts, Period $period): bool
+    {
+        $allowed = match ($period) {
+            Period::Monthly => ['P1M'],
+            Period::Quarterly => ['P3M'],
+            Period::Annual => ['P12M', 'P1Y'],
+            default => null,
+        };
+
+        if ($allowed === null) {
+            return false;
+        }
+
+        foreach ($parts as $part) {
+            $duration = $part['duration'] ?? null;
+
+            if (is_string($duration) && ! in_array($duration, $allowed, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The selected price parts summed into one exact amount. The parts
+     * must share one currency: `priceInUtv` is the exact integer
+     * minor-unit price and is preferred wherever every part carries
+     * it. The decimal `price.value` is a JSON float and only ever
+     * reaches Money through PHP's float rendering, so it is the
+     * fallback, and anything Money cannot express exactly (mixed
+     * currencies, more than two decimals, E-notation) throws to the
+     * caller's unknown-price path.
      *
      * @param  list<array<string, mixed>>  $parts
      * @return array{0: Money, 1: TaxBasis}
@@ -540,6 +608,16 @@ final class OvhProviderAdapter implements ProviderAdapter
      */
     private function priceFromParts(array $parts): array
     {
+        $currencies = [];
+
+        foreach ($parts as $part) {
+            $currencies[] = (string) ($part['price']['currencyCode'] ?? '');
+        }
+
+        if (count(array_unique($currencies)) > 1) {
+            throw new \InvalidArgumentException('strategy parts mix currencies');
+        }
+
         $taxBasis = TaxBasis::Exclusive;
 
         foreach ($parts as $part) {

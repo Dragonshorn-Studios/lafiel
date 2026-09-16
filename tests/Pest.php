@@ -1,6 +1,10 @@
 <?php
 
+use App\Domain\Providers\Ovh\BuildOvhApi;
+use App\Domain\Providers\Ovh\OvhApi;
+use App\Domain\Providers\Ovh\OvhProviderAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Fakes\FakeOvhApi;
 use Tests\TestCase;
 
 /*
@@ -183,4 +187,41 @@ function hetznerCloudFixture(string $path): mixed
 function hetznerCloudFixtureDir(): string
 {
     return __DIR__.'/Fixtures/HetznerCloud';
+}
+
+/**
+ * An adapter wired to the given fake API client.
+ */
+function ovhAdapter(FakeOvhApi $api): OvhProviderAdapter
+{
+    return new OvhProviderAdapter(new class($api) extends BuildOvhApi
+    {
+        public function __construct(private readonly OvhApi $api) {}
+
+        public function build(array $payload): OvhApi
+        {
+            return $this->api;
+        }
+    });
+}
+
+/**
+ * The complete run A inventory: the fake serves the /me identity, the
+ * run A /services listing, one renewal strategy per listed service,
+ * and the family catalogs for fallback pricing.
+ */
+function ovhServicesFake(string $listing = 'services-run-a.json'): FakeOvhApi
+{
+    $services = ovhFixture($listing);
+    $responses = ['/me' => ovhFixture('me.json'), '/services' => $services];
+
+    foreach ($services as $service) {
+        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
+    }
+
+    $responses['/order/catalog/formatted/vps'] = ovhFixture('catalog/vps-eu.json');
+    $responses['/order/catalog/formatted/domain'] = ovhFixture('catalog/domain-eu.json');
+    $responses['/order/catalog/formatted/ip'] = ovhFixture('catalog/ip-eu.json');
+
+    return new FakeOvhApi($responses);
 }
