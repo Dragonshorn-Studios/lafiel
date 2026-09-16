@@ -21,6 +21,8 @@ shapes still match.
 | Catalog fallback | `services/400010004.json` (no `billing.pricing`, empty `/renew`) + `catalog/ip-eu.json` plan `ip-block-2025` |
 | Missing on the next complete run | service `400010004` appears in `services-run-a.json` but not in `services-run-b.json` (both complete runs) |
 
+Published `route.path` values used by classification tests (mutated on the VPS fixture, not extra files): `GET /domain/{serviceName}`, `GET /hosting/web/{serviceName}`, `GET /ipLoadbalancing/{serviceName}`. `/ip` must not match `/ipLoadbalancing`. There is no `/domain/name` API.
+
 ## Layout
 
 Files mirror the API paths an adapter reads:

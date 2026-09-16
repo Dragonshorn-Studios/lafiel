@@ -68,6 +68,27 @@ it('produces a batch that passes canonical validation', function () {
     expect(true)->toBeTrue();
 });
 
+it('classifies published product route paths onto canonical families', function (string $path, string $category, string $providerType) {
+    $api = ovhServicesFake();
+    $api->responses['/services/400010001']['route']['path'] = $path;
+
+    $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
+    $item = collect($batch->items)->firstWhere(fn ($item) => $item->externalId === '400010001');
+
+    expect($item->category)->toBe($category)
+        ->and($item->providerType)->toBe($providerType);
+})->with([
+    ['/domain/{serviceName}', 'domain', 'domain_name'],
+    ['/domain/zone/{zoneName}', 'dns', 'domain_zone'],
+    ['/hosting/web/{serviceName}', 'other', 'web_hosting'],
+    ['/ipLoadbalancing/{serviceName}', 'network', 'ip_loadbalancing'],
+    ['/ip/{ip}', 'network', 'ip'],
+    ['/sslGateway/{serviceName}', 'security', 'ssl_gateway'],
+    ['/ssl/{serviceName}', 'security', 'ssl'],
+    ['/license/cpanel/{serviceName}', 'saas', 'license'],
+    ['/vps/{serviceName}', 'compute', 'vps'],
+]);
+
 it('classifies an unmapped route path as other with a warning', function () {
     $api = ovhServicesFake();
     $api->responses['/services/400010001']['route']['path'] = '/future/product/{serviceName}';

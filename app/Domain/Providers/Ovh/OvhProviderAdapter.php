@@ -49,19 +49,45 @@ use Carbon\Exceptions\InvalidFormatException;
 final class OvhProviderAdapter implements ProviderAdapter
 {
     /**
-     * Route prefix => [canonical category, provider type]. When adding
-     * entries, a longer prefix must precede any prefix it extends.
+     * `route.path` prefix => [canonical category, provider type].
+     *
+     * Prefixes are the published product APIs (`/1.0/` index + each
+     * product schema), not invented segments. Matching is
+     * `{prefix}` or `{prefix}/…`, so `/ip` cannot swallow
+     * `/ipLoadbalancing`. A longer prefix must still precede any
+     * prefix it extends (`/domain/zone` before `/domain`).
      *
      * @var array<string, array{0: string, 1: string}>
      */
     private const ROUTE_FAMILIES = [
         '/dedicated/server' => ['compute', 'dedicated_server'],
+        '/dedicated/cluster' => ['compute', 'dedicated_cluster'],
+        '/dedicated/housing' => ['compute', 'dedicated_housing'],
+        '/dedicated/nasha' => ['storage', 'nasha'],
+        '/dedicated/ceph' => ['storage', 'ceph'],
+        '/dedicatedCloud' => ['compute', 'dedicated_cloud'],
         '/cloud/project' => ['compute', 'cloud_project'],
-        '/domain/zone' => ['dns', 'domain_zone'],
-        '/domain/name' => ['domain', 'domain_name'],
-        '/email/domain' => ['email', 'email_domain'],
-        '/email/pro' => ['email', 'email_pro'],
         '/hosting/privateDatabase' => ['database', 'private_database'],
+        '/hosting/web' => ['other', 'web_hosting'],
+        '/domain/zone' => ['dns', 'domain_zone'],
+        '/domain' => ['domain', 'domain_name'],
+        '/email/domain' => ['email', 'email_domain'],
+        '/email/exchange' => ['email', 'email_exchange'],
+        '/email/mxplan' => ['email', 'email_mxplan'],
+        '/email/pro' => ['email', 'email_pro'],
+        '/veeam/veeamEnterprise' => ['storage', 'veeam_enterprise'],
+        '/veeamCloudConnect' => ['storage', 'veeam_cloud_connect'],
+        '/ipLoadbalancing' => ['network', 'ip_loadbalancing'],
+        '/sslGateway' => ['security', 'ssl_gateway'],
+        '/cdn/dedicated' => ['network', 'cdn'],
+        '/dbaas/logs' => ['observability', 'logs'],
+        '/ovhCloudConnect' => ['network', 'cloud_connect'],
+        '/license' => ['saas', 'license'],
+        '/metrics' => ['observability', 'metrics'],
+        '/nutanix' => ['compute', 'nutanix'],
+        '/storage' => ['storage', 'storage'],
+        '/vrack' => ['network', 'vrack'],
+        '/ssl' => ['security', 'ssl'],
         '/vps' => ['compute', 'vps'],
         '/ip' => ['network', 'ip'],
     ];
@@ -192,9 +218,14 @@ final class OvhProviderAdapter implements ProviderAdapter
             $amount = null;
             $taxBasis = TaxBasis::Unknown;
             $notes = null;
+            $terminated = ($meta['status'] ?? null) === 'terminated';
+
+            if ($terminated) {
+                $warnings[] = "service [{$item->externalId}] is terminated; renewal quote is skipped.";
+            }
 
             try {
-                $priced = $this->priceFromBilling($item);
+                $priced = $terminated ? null : $this->priceFromBilling($item);
 
                 if ($priced !== null) {
                     [$amount, $taxBasis] = $priced;
@@ -205,11 +236,11 @@ final class OvhProviderAdapter implements ProviderAdapter
                 $warnings[] = "renewal price for [{$item->externalId}] could not be parsed; left unknown.";
             }
 
-            if ($amount === null && $item->providerType === 'cloud_project') {
+            if ($amount === null && ! $terminated && $item->providerType === 'cloud_project') {
                 $warnings[] = "public cloud usage and billing are not yet synchronized; [{$item->externalId}] stays unknown.";
             }
 
-            if ($amount === null && $item->providerType !== 'cloud_project') {
+            if ($amount === null && ! $terminated && $item->providerType !== 'cloud_project') {
                 try {
                     $renewed = $this->priceFromRenew($api, $item, $period, $warnings);
 
@@ -226,7 +257,7 @@ final class OvhProviderAdapter implements ProviderAdapter
                 }
             }
 
-            if ($amount === null && $item->providerType !== 'cloud_project') {
+            if ($amount === null && ! $terminated && $item->providerType !== 'cloud_project') {
                 $family = $this->catalogFamily($item->providerType);
 
                 if ($family !== null) {
@@ -777,7 +808,7 @@ final class OvhProviderAdapter implements ProviderAdapter
         }
 
         foreach (self::ROUTE_FAMILIES as $prefix => [$category, $providerType]) {
-            if (str_starts_with($path, $prefix)) {
+            if ($path === $prefix || str_starts_with($path, $prefix.'/')) {
                 return [$category, $providerType, null];
             }
         }

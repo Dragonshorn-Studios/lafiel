@@ -161,6 +161,24 @@ it('does not use a bundled /renew order preview as either sibling\'s charge', fu
         ->and($costs->facts)->toHaveCount(5);
 });
 
+it('does not quote a terminated expanded service even when billing.pricing is present', function () {
+    $api = ovhServicesFake();
+    $api->responses['/services/400010001']['billing']['lifecycle']['current']['state'] = 'terminated';
+
+    $adapter = ovhAdapter($api);
+
+    $account = ProviderAccount::factory()->create();
+    $context = ovhQuoteContext($account);
+    $inventory = $adapter->fetchInventory($context);
+    $costs = $adapter->fetchCostFacts($context, $inventory);
+
+    $vps = collect($costs->facts)->firstWhere(fn ($fact) => $fact->sourceRef === 'ovh:service:400010001');
+
+    expect($vps->amount)->toBeNull();
+    expect($costs->warnings)->toContain('service [400010001] is terminated; renewal quote is skipped.');
+    expect($api->callCount('/service/400010001/renew'))->toBe(0);
+});
+
 it('does not call /service/{id}/renew when billing.pricing is present', function () {
     $api = ovhServicesFake();
     $adapter = ovhAdapter($api);

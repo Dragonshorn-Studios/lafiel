@@ -50,7 +50,13 @@ Fields: vendor/provider, name, category, known/unknown amount, currency, period,
 
 The numeric OVH `serviceId` is the canonical inventory identity; the technical service name and `route.path` are preserved next to it, and product-specific endpoints only enrich the common record — they never replace the id. Provider lifecycle fields live in `services.metadata`, a column owned by the provider adapter and overwritten wholesale on every sync; nothing else may shape it.
 
-OVH publishes two overlapping families. `/services` (plural) is inventory and contracted billing. `/service` (singular) is a beta family whose useful read is `/service/{id}/renew`: a list of *possible order combinations*, not the current charge. Treating that preview as the price (or treating `/services` as an object listing with `selectedPrice` / `priceInUtv`) is what made imported amounts wrong.
+OVH publishes two overlapping families, plus a third `services.Service` shape on every product's `/serviceInfos` endpoint. Only the plural `/services` family is inventory:
+
+- `GET /services` → `long[]` of ids (filters exist; there is no pagination). `GET /services/{id}` → `services.expanded.Service`: nested `resource`, `route` (object with `path`/`url`/`vars`, never a string), `billing.plan`, `billing.pricing` (`services.billing.Pricing`: `pricingType` `consumption|purchase|rental`, `capacities` including `renew`, `priceInUcents` in micro-cents), `billing.renew.current.mode` (`automatic|manual`), `billing.nextBillingDate`.
+- `GET /service` (singular, beta) also returns `long[]`, but `GET /service/{id}` is a *different* type (`serviceList.Service`) whose `renew.mode` enum is the old `automaticV2016` family — not used. The useful singular read is `GET /service/{id}/renew` → `service.renew.RenewDescription[]` of *possible order combinations*, not the current charge.
+- Product `/serviceInfos` (`GET /vps/{name}/serviceInfos`, …) returns yet another `services.Service` (quantity, `renewalType`). It is not the inventory surface.
+
+Treating `/renew` as the price (or treating `/services` as an object listing with `selectedPrice` / `priceInUtv`) is what made imported amounts wrong. Classification uses published product `route.path` prefixes (`GET /domain/{serviceName}`, `GET /hosting/web`, `GET /ipLoadbalancing` before `GET /ip`); there is no `/domain/name` API. A service whose expanded `billing.lifecycle.current.state` is `terminated` stays in inventory without a quote — `GET /services` can still list it.
 
 ### Renewal quotes and pricing sources
 
@@ -59,7 +65,8 @@ OVH publishes two overlapping families. `/services` (plural) is inventory and co
 - `GET /service/{id}/renew` is consulted only when `billing.pricing` is missing. A multi-service strategy is an order preview and is never used as that service's charge — it would mix in other services' prices. Several solo strategies for the same period are ambiguous and stay unknown.
 - The public formatted catalog (`order.catalog.Catalog` for vps/ip) is a last-resort estimate only, marked as such in the charge notes, and is requested for the account's own subsidiary and checked against its currency (both read from `/me`). Domain formatted catalogs are a different paginated TLD shape and are not used as fallback. A missing or ambiguous catalog match warns and degrades the run.
 - Public Cloud projects (`pricingType: consumption`) are never catalog-priced and never take a `/renew` order preview: their real cost comes from resources and usage, which is a separate unsupported capability. A project's price is an explicit unknown plus a standing warning.
-- `billing.nextBillingDate` (falling back to `billing.renew.current.nextDate`) is the renewal date; `billing.renew.current.mode` is auto-renew. Cadences OVH expresses that Lafiel has no period for (`P6M`, `P2Y`, `P3Y`) stay `unknown` with a warning.
+- `billing.nextBillingDate` (falling back to `billing.renew.current.nextDate`) is the renewal date; `billing.renew.current.mode` is auto-renew (`automatic`/`manual` on the expanded service — not the singular `automaticV2016` enum). Cadences OVH expresses that Lafiel has no period for (`P6M`, `P2Y`, `P3Y`) stay `unknown` with a warning.
+- A `terminated` expanded lifecycle is not quoted, even when `billing.pricing` is still present. Options are inventoried only when they appear on `GET /services` (they carry `parentServiceId`); `GET /services/{id}/options` is not a second listing.
 
 ### Credentials
 
