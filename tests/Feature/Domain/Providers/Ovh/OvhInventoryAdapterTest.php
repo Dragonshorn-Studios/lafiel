@@ -91,6 +91,20 @@ it('classifies an unmapped route as other with a warning', function () {
         ->and($batch->warnings)->toContain('service [vps-synthetic-01] uses unmapped route [/future/product/future-synthetic-01]; classified as other.');
 });
 
+it('classifies a non-string route as other with a warning', function () {
+    $api = ovhRunAFake();
+    $api->responses['/service/vps-synthetic-01']['route'] = ['/vps', 'vps-synthetic-01'];
+
+    $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
+
+    $item = collect($batch->items)->firstWhere(fn ($item) => $item->externalId === 'vps-synthetic-01');
+
+    expect($item->category)->toBe('other')
+        ->and($item->providerType)->toBe('unknown')
+        ->and($batch->completeness)->toBe(BatchCompleteness::Complete)
+        ->and($batch->warnings)->toContain('service [vps-synthetic-01] returned a non-string route [["/vps","vps-synthetic-01"]]; classified as other.');
+});
+
 it('reports partial completeness when a service metadata call fails transiently', function () {
     $api = ovhRunAFake()->throwOn('/service/ip-synthetic-01', [
         new TransientProviderException('OVH API server error for [/service/ip-synthetic-01] (HTTP 503).'),

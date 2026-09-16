@@ -264,7 +264,9 @@ final class OvhProviderAdapter implements ProviderAdapter
      */
     private function catalogPricing(array $catalog, array $service, Period $period): ?array
     {
-        $offer = (string) ($service['offer'] ?? '');
+        // Same shape risk as the route: a non-string offer means no
+        // matchable plan, leaving the renewal price unknown.
+        $offer = is_string($service['offer'] ?? null) ? $service['offer'] : '';
         $duration = match ($period) {
             Period::Monthly => 'P1M',
             Period::Quarterly => 'P3M',
@@ -382,7 +384,18 @@ final class OvhProviderAdapter implements ProviderAdapter
      */
     private function classify(array $service, string $name): array
     {
-        $route = (string) ($service['route'] ?? '');
+        $route = $service['route'] ?? '';
+
+        // The API does not guarantee the documented string shape for
+        // every service, so a non-scalar route is classed as other —
+        // never cast, which would crash the whole run.
+        if (! is_string($route)) {
+            return [
+                'other',
+                'unknown',
+                'service ['.$name.'] returned a non-string route ['.json_encode($route, JSON_UNESCAPED_SLASHES).']; classified as other.',
+            ];
+        }
 
         foreach (self::ROUTE_FAMILIES as $prefix => [$category, $providerType]) {
             if (str_starts_with($route, $prefix)) {
