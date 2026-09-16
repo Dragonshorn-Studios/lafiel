@@ -218,46 +218,58 @@ final class OvhProviderAdapter implements ProviderAdapter
             $amount = null;
             $taxBasis = TaxBasis::Unknown;
             $notes = null;
-            $terminated = ($meta['status'] ?? null) === 'terminated';
+            $allowFallback = ($meta['status'] ?? null) !== 'terminated';
 
-            if ($terminated) {
+            if (! $allowFallback) {
                 $warnings[] = "service [{$item->externalId}] is terminated; renewal quote is skipped.";
             }
 
             try {
-                $priced = $terminated ? null : $this->priceFromBilling($item);
+                $priced = $allowFallback ? $this->priceFromBilling($item) : null;
 
                 if ($priced !== null) {
                     [$amount, $taxBasis] = $priced;
                     $notes = 'contracted price from the service billing plan.';
+                    $allowFallback = false;
                 }
             } catch (\InvalidArgumentException) {
                 $degraded = true;
+                $allowFallback = false;
                 $warnings[] = "renewal price for [{$item->externalId}] could not be parsed; left unknown.";
             }
 
-            if ($amount === null && ! $terminated && $item->providerType === 'cloud_project') {
+            if ($amount === null && $allowFallback && $item->providerType === 'cloud_project') {
                 $warnings[] = "public cloud usage and billing are not yet synchronized; [{$item->externalId}] stays unknown.";
+                $allowFallback = false;
             }
 
-            if ($amount === null && ! $terminated && $item->providerType !== 'cloud_project') {
+            if ($amount === null && $allowFallback && $item->providerType !== 'cloud_project') {
+                $stopFallback = false;
+
                 try {
-                    $renewed = $this->priceFromRenew($api, $item, $period, $warnings);
+                    $renewed = $this->priceFromRenew($api, $item, $period, $warnings, $stopFallback);
+
+                    if ($stopFallback) {
+                        $degraded = true;
+                        $allowFallback = false;
+                    }
 
                     if ($renewed !== null) {
                         [$amount, $taxBasis] = $renewed;
                         $notes = 'renewal quote from the solo /service/{id}/renew strategy.';
+                        $allowFallback = false;
                     }
                 } catch (TransientProviderException) {
                     $degraded = true;
                     $warnings[] = "renewal quote unavailable for [{$item->externalId}]; the strategy fetch failed.";
                 } catch (\InvalidArgumentException) {
                     $degraded = true;
+                    $allowFallback = false;
                     $warnings[] = "renewal price for [{$item->externalId}] could not be parsed; left unknown.";
                 }
             }
 
-            if ($amount === null && ! $terminated && $item->providerType !== 'cloud_project') {
+            if ($amount === null && $allowFallback && $item->providerType !== 'cloud_project') {
                 $family = $this->catalogFamily($item->providerType);
 
                 if ($family !== null) {
@@ -528,7 +540,7 @@ final class OvhProviderAdapter implements ProviderAdapter
      * @throws TransientProviderException
      * @throws \InvalidArgumentException
      */
-    private function priceFromRenew(OvhApi $api, InventoryItem $item, Period $period, array &$warnings): ?array
+    private function priceFromRenew(OvhApi $api, InventoryItem $item, Period $period, array &$warnings, bool &$stopFallback): ?array
     {
         $renew = $api->get('/service/'.$item->externalId.'/renew');
 
@@ -572,6 +584,7 @@ final class OvhProviderAdapter implements ProviderAdapter
 
         if ($soloCount > 1) {
             $warnings[] = "renewal price for [{$item->externalId}] is ambiguous; left unknown.";
+            $stopFallback = true;
 
             return null;
         }
