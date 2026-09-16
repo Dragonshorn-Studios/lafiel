@@ -12,6 +12,7 @@ use App\Domain\Providers\Enums\ConnectionStatus;
 use App\Domain\Providers\Exceptions\UnsupportedProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Sync\Actions\RequestSync;
+use App\Domain\Sync\Models\SyncRun;
 use Flux\Flux;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Collection;
@@ -34,6 +35,11 @@ new #[Title('Providers')] class extends Component {
     public ?int $editingAccountId = null;
 
     public bool $panelOpen = false;
+
+    /**
+     * The account whose last synchronization the details modal shows.
+     */
+    public ?int $syncDetailsAccountId = null;
 
     /**
      * Display labels for the known provider capabilities, in rail order.
@@ -288,6 +294,37 @@ new #[Title('Providers')] class extends Component {
     }
 
     /**
+     * Fetch the account's latest run freshly — the eager-loaded one may
+     * predate the click — and open the details modal.
+     */
+    public function openSyncDetails(int $accountId): void
+    {
+        $this->syncDetailsAccountId = $accountId;
+
+        Flux::modal('sync-details')->show();
+    }
+
+    #[Computed]
+    public function syncDetailsAccount(): ?ProviderAccount
+    {
+        if ($this->syncDetailsAccountId === null) {
+            return null;
+        }
+
+        return ProviderAccount::query()->find($this->syncDetailsAccountId);
+    }
+
+    /**
+     * The account's most recent run, straight from the database so the
+     * modal never shows the request-stale eager-loaded copy.
+     */
+    #[Computed]
+    public function syncDetailsRun(): ?SyncRun
+    {
+        return $this->syncDetailsAccount?->latestSyncRun()->first();
+    }
+
+    /**
      * The stored payload's non-secret summary. A payload that no
      * longer decrypts (rotated APP_KEY) reads as unreadable instead of
      * crashing the page; replacing the credentials fixes it.
@@ -405,12 +442,32 @@ new #[Title('Providers')] class extends Component {
                             <flux:badge size="sm">{{ __('Sync paused') }}</flux:badge>
                         @endif
 
-                        @if ($account->latestSyncRun !== null)
-                            <span class="inline-flex items-center gap-1.5" data-test="last-run-status">
-                                <span class="text-xs text-ink-muted">{{ __('Last run') }}</span>
+                        {{-- The last-run status opens the details modal; it is a
+                             real button so it reads as clickable and works from
+                             the keyboard (issue #49). --}}
+                        <button
+                            type="button"
+                            wire:click="openSyncDetails({{ $account->id }})"
+                            class="group inline-flex cursor-pointer items-center gap-1.5 rounded-control px-1 py-0.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                            aria-haspopup="dialog"
+                            aria-label="{{ $account->latestSyncRun !== null
+                                ? __('Last run: :status — show synchronization details', ['status' => $account->latestSyncRun->status->label()])
+                                : __('Never synced — show synchronization details') }}"
+                            data-test="last-run-status"
+                        >
+                            @if ($account->latestSyncRun !== null)
+                                <span>{{ __('Last run') }}</span>
                                 <x-imperial.sync-status-badge :status="$account->latestSyncRun->status" />
-                            </span>
-                        @endif
+                            @else
+                                <span>{{ __('Never synced') }}</span>
+                                <flux:icon.clock variant="mini" class="size-3.5" />
+                            @endif
+
+                            {{-- Loading state while the details round-trip runs. --}}
+                            <flux:icon.arrow-path variant="mini" class="size-3.5 animate-spin" wire:loading wire:target="openSyncDetails({{ $account->id }})" data-test="sync-details-loading" />
+
+                            <flux:icon.chevron-right variant="micro" class="size-3 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" wire:loading.remove wire:target="openSyncDetails({{ $account->id }})" />
+                        </button>
                     </div>
 
                     <p class="mt-2 text-sm text-ink-secondary">
@@ -527,6 +584,132 @@ new #[Title('Providers')] class extends Component {
             @endforeach
         </div>
     @endif
+
+    {{-- One modal serves every card's badge: the account whose details it
+         shows is the last one whose badge was clicked (issue #49). --}}
+    <flux:modal name="sync-details" class="max-w-lg" data-test="sync-details-modal">
+        <div class="space-y-5">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <flux:heading size="lg">{{ __('Last synchronization') }}</flux:heading>
+
+                    <flux:subheading>
+                        @if ($this->syncDetailsAccount !== null)
+                            {{ $this->syncDetailsAccount->display_name }} · {{ $this->schemas->labelFor($this->syncDetailsAccount->provider_key) }}
+                        @endif
+                    </flux:subheading>
+                </div>
+
+                <flux:modal.close class="shrink-0">
+                    <flux:button variant="ghost" size="sm" icon="x-mark" :aria-label="__('Close')" />
+                </flux:modal.close>
+            </div>
+
+            @if ($this->syncDetailsAccount === null)
+                <p class="text-sm text-ink-secondary">{{ __('This provider account no longer exists.') }}</p>
+            @elseif ($this->syncDetailsRun === null)
+                <x-imperial.empty-state :hint="__('No synchronization has run for this account yet. Start one to import its services and renewal quotes.')" class="py-8" data-test="sync-details-empty">
+                    <flux:button size="sm" variant="primary" wire:click="syncNow({{ $this->syncDetailsAccount->id }})">
+                        {{ __('Sync now') }}
+                    </flux:button>
+                </x-imperial.empty-state>
+            @else
+                @php($run = $this->syncDetailsRun)
+                @php($warnings = $run->summary['warnings'] ?? [])
+                @php($error = $run->summary['error'] ?? (
+                    $run->status->value === 'failed' && $warnings !== [] ? $warnings[0] : null
+                ))
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <x-imperial.sync-status-badge :status="$run->status" />
+
+                    <span class="text-xs text-ink-muted">
+                        #{{ $run->id }} · {{ __($run->trigger) }}
+                    </span>
+
+                    @if ($run->stage !== null)
+                        <span class="text-xs text-ink-secondary">
+                            {{ $run->status->value === 'failed' ? __('failed during :stage', ['stage' => $run->stage->label()]) : $run->stage->label() }}
+                        </span>
+                    @endif
+                </div>
+
+                <dl class="grid gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2" data-test="sync-details-timeline">
+                    <div class="flex justify-between gap-3 sm:justify-start">
+                        <dt class="text-ink-secondary">{{ __('Queued') }}</dt>
+                        <dd>{{ $run->created_at->timezone(config('app.timezone'))->format('Y-m-d H:i') }}</dd>
+                    </div>
+
+                    @if ($run->started_at !== null)
+                        <div class="flex justify-between gap-3 sm:justify-start">
+                            <dt class="text-ink-secondary">{{ __('Started') }}</dt>
+                            <dd>{{ $run->started_at->timezone(config('app.timezone'))->format('Y-m-d H:i') }}</dd>
+                        </div>
+                    @endif
+
+                    @if ($run->finished_at !== null)
+                        <div class="flex justify-between gap-3 sm:justify-start">
+                            <dt class="text-ink-secondary">{{ __('Finished') }}</dt>
+                            <dd>
+                                {{ $run->finished_at->timezone(config('app.timezone'))->format('Y-m-d H:i') }}
+                                @if ($run->started_at !== null)
+                                    ({{ $run->started_at->diffInSeconds($run->finished_at) }}s)
+                                @endif
+                            </dd>
+                        </div>
+                    @endif
+                </dl>
+
+                @if ($error !== null)
+                    <div class="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger" data-test="sync-details-error">
+                        {{ $error }}
+                    </div>
+                @endif
+
+                @if ($warnings !== [])
+                    <div>
+                        <p class="text-xs font-medium text-ink-secondary">{{ __('Notes from the run') }}</p>
+
+                        <ul class="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-control border border-line bg-surface-subtle p-3 text-xs text-ink-secondary" data-test="sync-details-warnings">
+                            @foreach ($warnings as $warning)
+                                <li wire:key="warning-{{ $loop->index }}">{{ $warning }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @isset($run->counts['inventory'])
+                    <p class="text-xs text-ink-secondary">
+                        {{ __('inventory') }}: {{ $run->counts['inventory']['seen'] ?? 0 }} {{ __('seen') }}, {{ $run->counts['inventory']['created'] ?? 0 }} {{ __('new') }}
+                    </p>
+                @endisset
+
+                @isset($run->counts['cost_facts'])
+                    <p class="text-xs text-ink-secondary">
+                        {{ __('cost facts') }}: {{ $run->counts['cost_facts']['seen'] ?? 0 }} {{ __('seen') }}, {{ $run->counts['cost_facts']['created'] ?? 0 }} {{ __('new') }}
+                    </p>
+                @endisset
+
+                <div class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+                    <a href="{{ route('syncs.index') }}" wire:navigate class="text-sm font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">
+                        {{ __('View all sync activity') }}
+                    </a>
+
+                    <div class="flex items-center gap-2">
+                        @if ($run->status->value === 'failed' && $this->syncDetailsAccount->enabled)
+                            <flux:button size="sm" variant="primary" wire:click="syncNow({{ $this->syncDetailsAccount->id }})" data-test="sync-details-retry">
+                                {{ __('Retry sync') }}
+                            </flux:button>
+                        @endif
+
+                        <flux:modal.close>
+                            <flux:button size="sm" variant="ghost">{{ __('Close') }}</flux:button>
+                        </flux:modal.close>
+                    </div>
+                </div>
+            @endif
+        </div>
+    </flux:modal>
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
     <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
