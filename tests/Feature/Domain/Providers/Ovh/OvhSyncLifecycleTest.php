@@ -326,14 +326,14 @@ it('marks a run failed when the sync job cannot be dispatched', function () {
 
     $run = app(RequestSync::class)->request($account, 'manual');
 
-    // The run is marked failed (not left queued), the warning is
+    // The run is marked failed (not left queued), the error is
     // recorded, and the next request is no longer blocked.
     $second = app(RequestSync::class)->request($account, 'manual');
 
     expect($run)->not->toBeNull()
         ->and($run->status)->toBe(SyncStatus::Failed)
         ->and($run->finished_at)->not->toBeNull()
-        ->and($run->summary['warnings'][0])->toContain('could not queue the sync job')
+        ->and($run->summary['error'])->toContain('could not queue the sync job')
         ->and($second)->not->toBeNull();
 });
 

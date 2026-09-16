@@ -54,4 +54,17 @@ return [
 
     'inactive_after_complete_runs' => env('LAFIEL_INACTIVE_AFTER_COMPLETE_RUNS', 3),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Scheduled sync
+    |--------------------------------------------------------------------------
+    |
+    | Every enabled account syncs once a day at this local time. The
+    | console schedule and the sync activity view both read it, so the
+    | page can say when the next scheduled run is due.
+    |
+    */
+
+    'scheduled_at' => '04:00',
+
 ];

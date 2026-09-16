@@ -254,7 +254,8 @@ it('queues a sync now through the shared entry point', function () {
 
     providersPage()
         ->call('syncNow', $account->id)
-        ->assertSee(__('Last run: :status', ['status' => 'failed']), false);
+        ->assertSee(__('Last run'))
+        ->assertSee('failed');
 
     expect(SyncRun::query()->where('provider_account_id', $account->id)->count())->toBe(1)
         ->and(SyncRun::query()->where('provider_account_id', $account->id)->sole()->trigger)->toBe('manual');

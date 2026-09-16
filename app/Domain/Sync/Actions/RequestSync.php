@@ -60,7 +60,7 @@ final class RequestSync
             // with no job behind it, blocking further syncs until the
             // stale-run reconciler aged it out.
             $run->status = SyncStatus::Failed;
-            $run->summary = ['warnings' => ['could not queue the sync job: '.$exception->getMessage()]];
+            $run->summary = ['error' => 'could not queue the sync job: '.$exception->getMessage()];
             $run->finished_at = now();
             $run->save();
 

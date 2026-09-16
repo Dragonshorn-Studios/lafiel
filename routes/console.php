@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('lafiel:heartbeat')->everyMinute();
 Schedule::job(new HeartbeatJob)->everyMinute();
 
-// The scheduled OVH cycle: every enabled account syncs once a day.
-Schedule::command('lafiel:sync', ['--trigger' => 'schedule'])->daily()->at('04:00');
+// The scheduled cycle: every enabled account syncs once a day. The time
+// lives in config so the sync activity view can show the next due run.
+Schedule::command('lafiel:sync', ['--trigger' => 'schedule'])->daily()->at(config('sync.scheduled_at'));
 
 // Replayable daily snapshots; material changes snapshot immediately
 // regardless.

@@ -309,11 +309,7 @@ new #[Title('Providers')] class extends Component {
 
     public function providerLabelFor(string $providerKey): string
     {
-        try {
-            return $this->schemas->for($providerKey)::label();
-        } catch (UnsupportedProviderException) {
-            return $providerKey;
-        }
+        return $this->schemas->labelFor($providerKey);
     }
 
     private function account(int $accountId): ProviderAccount
@@ -415,9 +411,10 @@ new #[Title('Providers')] class extends Component {
                         @endif
 
                         @if ($account->latestSyncRun !== null)
-                            <flux:badge :variant="$account->latestSyncRun->status->value === 'succeeded' ? 'success' : 'neutral'" size="sm" data-test="last-run-status">
-                                {{ __('Last run: :status', ['status' => $account->latestSyncRun->status->value]) }}
-                            </flux:badge>
+                            <span class="inline-flex items-center gap-1.5" data-test="last-run-status">
+                                <span class="text-xs text-ink-muted">{{ __('Last run') }}</span>
+                                <x-imperial.sync-status-badge :status="$account->latestSyncRun->status" />
+                            </span>
                         @endif
                     </div>
 
