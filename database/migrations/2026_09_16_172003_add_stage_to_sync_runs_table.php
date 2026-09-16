@@ -19,6 +19,10 @@ return new class extends Migration
             $table->string('stage')->nullable()->after('status');
         });
 
+        // Mirrors the SyncStage enum; a new case needs its own migration
+        // to widen this list. The constraint is unnamed: it cannot be
+        // dropped by name on sqlite, and dropping the column below
+        // removes it on both engines anyway.
         DB::statement(
             "ALTER TABLE sync_runs ADD CHECK (stage IS NULL OR stage IN ('credentials', 'inventory', 'costs', 'persisting'))"
         );
@@ -29,8 +33,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement('ALTER TABLE sync_runs DROP CONSTRAINT sync_runs_stage_check');
-
         Schema::table('sync_runs', function (Blueprint $table) {
             $table->dropColumn('stage');
         });

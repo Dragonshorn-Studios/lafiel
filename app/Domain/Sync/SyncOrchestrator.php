@@ -38,7 +38,8 @@ use Illuminate\Support\Str;
  * outside a transaction, validate batch invariants, persist
  * idempotently in a short transaction, apply lifecycle transitions —
  * missing/inactive only after a complete inventory, presence on any
- * usable batch — and finish with counts and sanitized warnings.
+ * usable batch — and finish with counts and a sanitized summary:
+ * warnings, plus the primary error for failures.
  */
 final class SyncOrchestrator
 {
@@ -73,7 +74,7 @@ final class SyncOrchestrator
         // is the account's only live run, so a held lock always belongs
         // to a stale worker — fail fast and let the TTL recover it.
         if (! $lock->get()) {
-            return $this->finish($run, SyncStatus::Failed, [], [], error: 'account lock is held by another sync');
+            return $this->fail($run, 'account lock is held by another sync');
         }
 
         try {
@@ -106,13 +107,13 @@ final class SyncOrchestrator
         try {
             $adapter = $this->registry->for($account->provider_key);
         } catch (UnsupportedProviderException $exception) {
-            return $this->finish($run, SyncStatus::Failed, [], [], error: $this->providerWarning($exception));
+            return $this->fail($run, $this->providerWarning($exception));
         }
 
         $credential = $account->credentials()->latest('id')->first();
 
         if ($credential === null) {
-            return $this->finish($run, SyncStatus::Failed, [], [], error: 'account has no stored credentials');
+            return $this->fail($run, 'account has no stored credentials');
         }
 
         $context = new SyncContext($account, $credential->payload, $now);
@@ -126,11 +127,11 @@ final class SyncOrchestrator
             } catch (InvalidCredentialsException $exception) {
                 return $this->finishWithRejectedCredentials($run, $credential, $exception, $redactor);
             } catch (ProviderException $exception) {
-                return $this->finish($run, SyncStatus::Failed, [], [], $redactor, $this->providerWarning($exception));
+                return $this->fail($run, $this->providerWarning($exception), redactor: $redactor);
             }
 
             if (! $check->valid) {
-                return $this->finish($run, SyncStatus::Failed, [], [], $redactor, $check->warning ?? 'credentials are invalid');
+                return $this->fail($run, $check->warning ?? 'credentials are invalid', redactor: $redactor);
             }
 
             $credential->verified_at = $now;
@@ -141,11 +142,11 @@ final class SyncOrchestrator
         try {
             $capabilities = $this->retry->execute(fn () => $adapter->capabilities());
         } catch (ProviderException $exception) {
-            return $this->finish($run, SyncStatus::Failed, [], [], $redactor, $this->providerWarning($exception));
+            return $this->fail($run, $this->providerWarning($exception), redactor: $redactor);
         }
 
         if (! $capabilities->supports(ProviderCapability::Inventory)) {
-            return $this->finish($run, SyncStatus::Failed, [], [], $redactor, 'adapter does not support the inventory capability');
+            return $this->fail($run, 'adapter does not support the inventory capability', redactor: $redactor);
         }
 
         $warnings = [];
@@ -189,7 +190,7 @@ final class SyncOrchestrator
         if ($outcomes[ProviderCapability::Inventory->value]->completeness === BatchCompleteness::Failed) {
             $this->recordCapabilities->record($account, $capabilities, $outcomes, $now);
 
-            return $this->finish($run, SyncStatus::Failed, [], $warnings, $redactor, $inventoryError ?? 'inventory fetch failed');
+            return $this->fail($run, $inventoryError ?? 'inventory fetch failed', $warnings, $redactor);
         }
 
         // --- Cost facts phase ------------------------------------------------
@@ -369,7 +370,19 @@ final class SyncOrchestrator
         $credential->verified_at = null;
         $credential->save();
 
-        return $this->finish($run, SyncStatus::Failed, [], [], $redactor, $this->providerWarning($exception));
+        return $this->fail($run, $this->providerWarning($exception), redactor: $redactor);
+    }
+
+    /**
+     * Finish the run as failed with its primary cause. Every failure
+     * path funnels through here, so a failed run always carries an
+     * actionable summary['error'].
+     *
+     * @param  list<string>  $warnings
+     */
+    private function fail(SyncRun $run, string $error, array $warnings = [], ?Redactor $redactor = null): SyncRun
+    {
+        return $this->finish($run, SyncStatus::Failed, [], $warnings, $redactor, $error);
     }
 
     /**
@@ -382,6 +395,8 @@ final class SyncOrchestrator
      *
      * @param  array<string, mixed>  $counts
      * @param  list<string>  $warnings
+     * @param  Redactor|null  $redactor  redacts credential material from everything stored
+     * @param  string|null  $error  primary failure cause, stored as summary['error']; failed runs pass it, others never do
      */
     private function finish(SyncRun $run, SyncStatus $status, array $counts, array $warnings, ?Redactor $redactor = null, ?string $error = null): SyncRun
     {
@@ -431,6 +446,9 @@ final class SyncOrchestrator
      */
     private function markStage(SyncRun $run, SyncStage $stage): void
     {
+        // Keep the in-memory model honest with the row it just wrote.
+        $run->stage = $stage;
+
         SyncRun::query()
             ->whereKey($run->id)
             ->where('status', SyncStatus::Running->value)
@@ -439,6 +457,7 @@ final class SyncOrchestrator
 
     /**
      * @param  list<string>  $warnings
+     * @param  string|null  $error  primary failure cause, or null when the run did not fail
      */
     private function logFinished(SyncStatus $status, SyncRun $run, array $warnings, ?string $error = null): void
     {

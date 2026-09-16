@@ -49,8 +49,9 @@ final class SyncProviderAccount implements ShouldQueue
         $run->status = SyncStatus::Failed;
         $run->finished_at = now();
         // The class name only, deliberately: an unexpected error's
-        // message is unredacted by construction, and the run id links
-        // to the full exception in the application log.
+        // message is unredacted by construction. The queue worker's own
+        // failure report logs the full exception; this run-id log line
+        // timestamps it for correlation.
         $run->summary = ['error' => sprintf('sync job failed unexpectedly: %s', $exception !== null ? $exception::class : 'unknown error')];
         $run->save();
 

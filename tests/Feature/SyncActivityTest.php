@@ -8,9 +8,11 @@ use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Jobs\SyncProviderAccount;
 use App\Domain\Sync\Models\SyncRun;
 use App\Models\User;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use RuntimeException;
 
 beforeEach(function () {
     $this->actingAs(User::factory()->create());
@@ -73,12 +75,16 @@ it('does not poll when no run is active', function () {
 });
 
 it('shows the next scheduled sync and the last successful finish', function () {
-    $finishedAt = now()->setTime(4, 0, 12);
-    SyncRun::factory()->create(['status' => SyncStatus::Succeeded, 'finished_at' => $finishedAt]);
+    $this->travelTo(now()->setTime(10, 0));
+
+    SyncRun::factory()->create([
+        'status' => SyncStatus::Succeeded,
+        'finished_at' => now()->setTime(4, 0, 12),
+    ]);
 
     syncsPage()
-        ->assertSee('Next scheduled sync')
-        ->assertSee('last successful');
+        ->assertSee('Next scheduled sync '.now()->addDay()->setTime(4, 0)->format('Y-m-d H:i'))
+        ->assertSee('last successful '.now()->setTime(4, 0)->format('Y-m-d H:i'));
 });
 
 it('shows an empty state when nothing has run yet', function () {
@@ -122,6 +128,32 @@ it('refuses to retry while the account already has an active run', function () {
     expect(SyncRun::query()->where('status', SyncStatus::Queued->value)->exists())->toBeFalse();
 });
 
+it('reports when a retry could not be queued', function () {
+    $account = ProviderAccount::factory()->create();
+    $run = SyncRun::factory()->for($account)->failed()->create();
+
+    Bus::shouldReceive('dispatch')
+        ->andThrow(new RuntimeException('queue connection refused'));
+
+    syncsPage()->call('retry', $run->id);
+
+    // The attempted run is marked failed, not left queued.
+    expect(SyncRun::query()->where('status', SyncStatus::Queued->value)->exists())->toBeFalse()
+        ->and(SyncRun::query()->where('status', SyncStatus::Failed->value)->count())->toBe(2);
+});
+
+it('tolerates a retry click on a run that no longer exists', function () {
+    Queue::fake();
+
+    $account = ProviderAccount::factory()->create();
+    $run = SyncRun::factory()->for($account)->failed()->create();
+    $run->delete();
+
+    syncsPage()->call('retry', $run->id);
+
+    Queue::assertNotPushed(SyncProviderAccount::class);
+});
+
 it('filters history by account and status', function () {
     $ovh = ProviderAccount::factory()->create();
     $hetzner = ProviderAccount::factory()->create();
@@ -134,10 +166,15 @@ it('filters history by account and status', function () {
         'counts' => ['inventory' => ['seen' => 7, 'created' => 2, 'updated' => 0]],
     ]);
 
+    // An in-flight run for the other account stays visible in the
+    // active section whatever the history filter says.
+    SyncRun::factory()->for($hetzner)->queued()->create();
+
     syncsPage()
         ->set('accountFilter', (string) $ovh->id)
         ->assertSee('ovh exploded spectacularly')
-        ->assertDontSee('7 seen · 2 new');
+        ->assertDontSee('7 seen · 2 new')
+        ->assertSee('In progress');
 
     syncsPage()
         ->set('statusFilter', SyncStatus::Succeeded->value)
@@ -145,7 +182,51 @@ it('filters history by account and status', function () {
         ->assertDontSee('ovh exploded spectacularly');
 });
 
-it('paginates the history', function () {
+it('shows the raw provider key for a provider that no longer has a schema', function () {
+    SyncRun::factory()->for(ProviderAccount::factory()->create(['provider_key' => 'discontinued']))->failed()->create();
+
+    syncsPage()->assertSee('discontinued');
+});
+
+it('formats durations, cost counts, and warnings', function () {
+    SyncRun::factory()->for(ProviderAccount::factory()->create())->create([
+        'status' => SyncStatus::Partial,
+        'stage' => SyncStage::Persisting,
+        'started_at' => now()->subMinutes(3)->subSeconds(5),
+        'finished_at' => now(),
+        'counts' => [
+            'inventory' => ['seen' => 4, 'created' => 1, 'updated' => 0],
+            'cost_facts' => ['seen' => 9, 'created' => 6, 'updated' => 0, 'superseded' => 1],
+        ],
+        'summary' => ['warnings' => ['wibble', 'wobble']],
+    ]);
+
+    syncsPage()
+        ->assertSee('3m 05s')
+        ->assertSee('cost facts 9 seen · 6 new')
+        ->assertSee('2 warning(s)');
+});
+
+it('surfaces the failure cause of legacy runs that predate the error key', function () {
+    SyncRun::factory()->for(ProviderAccount::factory()->create())->create([
+        'status' => SyncStatus::Failed,
+        'summary' => ['warnings' => ['TransientProviderException: 429 too many requests']],
+    ]);
+
+    syncsPage()->assertSee('429 too many requests');
+});
+
+it('hints that a long-queued run may be abandoned', function () {
+    $account = ProviderAccount::factory()->create();
+
+    SyncRun::factory()->for($account)->queued()->create([
+        'created_at' => now()->subHours(2),
+    ]);
+
+    syncsPage()->assertSee('this run may be abandoned');
+});
+
+it('paginates the history and resets the page when a filter changes', function () {
     $account = ProviderAccount::factory()->create();
     SyncRun::factory()->for($account)->count(20)->create();
 
@@ -156,4 +237,9 @@ it('paginates the history', function () {
     $page->call('setPage', 2)
         ->assertSee('#5')
         ->assertDontSee('#20');
+
+    // Filtering from page 2 lands back on page 1 of the filtered set.
+    $page->set('accountFilter', (string) $account->id)
+        ->assertSee('#20')
+        ->assertDontSee('#5');
 });

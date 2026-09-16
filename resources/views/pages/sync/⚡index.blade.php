@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -94,7 +95,13 @@ new #[Title('Sync activity')] class extends Component {
     #[Computed]
     public function nextScheduledAt(): CarbonImmutable
     {
-        [$hour, $minute] = array_map('intval', explode(':', (string) config('sync.scheduled_at', '04:00')));
+        $scheduledAt = (string) config('sync.scheduled_at', '04:00');
+
+        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $scheduledAt) !== 1) {
+            throw new \InvalidArgumentException("config('sync.scheduled_at') must be HH:MM, got [{$scheduledAt}].");
+        }
+
+        [$hour, $minute] = array_map('intval', explode(':', $scheduledAt));
 
         $now = CarbonImmutable::now(config('app.timezone'));
         $next = $now->setTime($hour, $minute);
@@ -119,7 +126,16 @@ new #[Title('Sync activity')] class extends Component {
      */
     public function retry(int $runId): void
     {
-        $run = SyncRun::query()->with('providerAccount')->findOrFail($runId);
+        // The account's deletion cascades its runs; a stale row on an
+        // open tab should toast, not throw Livewire's error modal.
+        $run = SyncRun::query()->with('providerAccount')->find($runId);
+
+        if ($run === null) {
+            Flux::toast(variant: 'warning', text: __('This sync run no longer exists.'));
+
+            return;
+        }
+
         $account = $run->providerAccount;
 
         if (! $account->enabled) {
@@ -148,6 +164,17 @@ new #[Title('Sync activity')] class extends Component {
     public function formatAt(?CarbonImmutable $at): ?string
     {
         return $at?->timezone(config('app.timezone'))->format('Y-m-d H:i');
+    }
+
+    /**
+     * An active run older than the stale threshold has lost its worker
+     * (crash, deploy); the view says so instead of rendering it healthy.
+     */
+    public function isPossiblyStale(SyncRun $run): bool
+    {
+        return $run->created_at->lt(
+            CarbonImmutable::now()->subSeconds((int) config('sync.stale_run_after_seconds', 1800)),
+        );
     }
 
     /**
@@ -244,6 +271,10 @@ new #[Title('Sync activity')] class extends Component {
                         <span class="text-ink-secondary">{{ $run->stage->label() }}</span>
                     @endif
 
+                    @if ($this->isPossiblyStale($run))
+                        <span class="text-xs text-attention">{{ __('waiting for a worker — this run may be abandoned') }}</span>
+                    @endif
+
                     <span class="text-ink-muted">{{ __('queued :at', ['at' => $this->formatAt($run->created_at)]) }}</span>
 
                     @if ($run->started_at !== null)
@@ -267,10 +298,9 @@ new #[Title('Sync activity')] class extends Component {
         <flux:select wire:model.live="statusFilter" :label="__('Status')" class="w-40" data-test="status-filter">
             <flux:select.option value="">{{ __('All statuses') }}</flux:select.option>
 
-            @foreach (\App\Domain\Sync\Enums\SyncStatus::cases() as $status)
+            @foreach (SyncStatus::cases() as $status)
                 <flux:select.option :value="$status->value">{{ $status->label() }}</flux:select.option>
-            @endforeach
-        </flux:select>
+            @endforeach        </flux:select>
     </div>
 
     @if ($this->runs->isEmpty())
@@ -288,8 +318,17 @@ new #[Title('Sync activity')] class extends Component {
 
             <flux:table.rows>
                 @foreach ($this->runs as $run)
-                    @php($error = $run->summary['error'] ?? null)
-                    @php($warnings = $run->summary['warnings'] ?? [])
+                    @php
+                        $error = $run->summary['error'] ?? null;
+                        $warnings = $run->summary['warnings'] ?? [];
+
+                        // Runs recorded before the error key existed keep
+                        // their cause in the warnings; surface it rather
+                        // than render history without a reason.
+                        if ($error === null && $warnings !== [] && $run->status === SyncStatus::Failed) {
+                            $error = array_shift($warnings);
+                        }
+                    @endphp
 
                     <flux:table.row :key="$run->id" data-test="sync-run">
                         <flux:table.cell>
@@ -335,7 +374,7 @@ new #[Title('Sync activity')] class extends Component {
                         <flux:table.cell class="max-w-72">
                             @if ($error !== null)
                                 <span class="block text-sm text-danger" title="{{ $error }}" data-test="sync-run-error">
-                                    {{ \Illuminate\Support\Str::limit($error, 90) }}
+                                    {{ Str::limit($error, 90) }}
                                 </span>
                             @else
                                 <span class="block text-sm text-ink-secondary" title="{{ $this->countsSummary($run->counts) }}">
@@ -351,7 +390,7 @@ new #[Title('Sync activity')] class extends Component {
                         </flux:table.cell>
 
                         <flux:table.cell>
-                            @if ($run->status === \App\Domain\Sync\Enums\SyncStatus::Failed && $run->providerAccount->enabled)
+                            @if ($run->status === SyncStatus::Failed && $run->providerAccount->enabled)
                                 <flux:button size="xs" wire:click="retry({{ $run->id }})" data-test="retry-sync-button">
                                     {{ __('Retry') }}
                                 </flux:button>

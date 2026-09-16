@@ -34,6 +34,7 @@ use App\Domain\Sync\Models\SyncRun;
 use App\Domain\Sync\SyncOrchestrator;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -1053,6 +1054,17 @@ it('reports an already active sync instead of queueing another', function () {
         ->expectsOutputToContain('already syncing');
 });
 
+it('reports the dispatch failure cause from the sync command', function () {
+    makeAccount(new FakeProviderAdapter);
+
+    Bus::shouldReceive('dispatch')
+        ->andThrow(new RuntimeException('queue connection refused'));
+
+    artisan('lafiel:sync')
+        ->expectsOutputToContain('could not queue the sync job: RuntimeException')
+        ->assertFailed();
+});
+
 it('fails the run and clears verification when the provider rejects credentials mid-cost-phase', function () {
     $adapter = new FakeProviderAdapter(
         inventoryBatch: inventoryBatch([inventoryItem('srv-1')]),
@@ -1073,6 +1085,7 @@ it('fails the run and clears verification when the provider rejects credentials 
     $run = runSync($account, $adapter)->fresh();
 
     expect($run->status)->toBe(SyncStatus::Failed)
+        ->and($run->stage)->toBe(SyncStage::Costs)
         ->and($credential->refresh()->verified_at)->toBeNull();
 });
 

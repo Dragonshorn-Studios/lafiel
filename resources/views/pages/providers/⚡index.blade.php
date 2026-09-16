@@ -307,11 +307,6 @@ new #[Title('Providers')] class extends Component {
         }
     }
 
-    public function providerLabelFor(string $providerKey): string
-    {
-        return $this->schemas->labelFor($providerKey);
-    }
-
     private function account(int $accountId): ProviderAccount
     {
         return ProviderAccount::query()->findOrFail($accountId);
@@ -419,7 +414,7 @@ new #[Title('Providers')] class extends Component {
                     </div>
 
                     <p class="mt-2 text-sm text-ink-secondary">
-                        {{ $this->providerLabelFor($account->provider_key) }} · {{ $this->credentialSummary($account) }}
+                        {{ $this->schemas->labelFor($account->provider_key) }} · {{ $this->credentialSummary($account) }}
                         @if ($account->last_success_at !== null)
                             · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
                         @endif
@@ -537,9 +532,9 @@ new #[Title('Providers')] class extends Component {
     <flux:modal name="provider-form" variant="flyout" wire:model="panelOpen" class="w-full max-w-lg">
         <flux:heading size="lg" class="mb-2">
             @if ($editingAccountId !== null)
-                {{ __('Replace :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}
+                {{ __('Replace :provider credentials', ['provider' => $this->schemas->labelFor($this->providerKey)]) }}
             @else
-                {{ __('Connect :provider', ['provider' => $this->providerLabelFor($this->providerKey)]) }}
+                {{ __('Connect :provider', ['provider' => $this->schemas->labelFor($this->providerKey)]) }}
             @endif
         </flux:heading>
 
@@ -598,7 +593,7 @@ new #[Title('Providers')] class extends Component {
         {{-- Least-privilege guidance for the selected provider, at the
              bottom of the panel; it follows the provider select. --}}
         <div class="mt-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-secondary" data-test="provider-help">
-            <p class="font-medium text-ink">{{ __('Read-only :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}</p>
+            <p class="font-medium text-ink">{{ __('Read-only :provider credentials', ['provider' => $this->schemas->labelFor($this->providerKey)]) }}</p>
 
             <p class="mt-2">
                 {{ __($this->activeSchema::help()) }}
@@ -606,7 +601,7 @@ new #[Title('Providers')] class extends Component {
 
             @if ($this->activeSchema::helpUrl() !== null)
                 <p class="mt-2">
-                    <a href="{{ $this->activeSchema::helpUrl() }}" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to create :provider credentials', ['provider' => $this->providerLabelFor($this->providerKey)]) }}</a>
+                    <a href="{{ $this->activeSchema::helpUrl() }}" target="_blank" rel="noopener noreferrer" class="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">{{ __('How to create :provider credentials', ['provider' => $this->schemas->labelFor($this->providerKey)]) }}</a>
                 </p>
             @endif
         </div>

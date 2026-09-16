@@ -39,6 +39,7 @@ class SyncRunFactory extends Factory
         ];
     }
 
+    /** Indicate that the run never left the queue. */
     public function queued(): static
     {
         return $this->state(fn (): array => [
@@ -49,6 +50,7 @@ class SyncRunFactory extends Factory
         ]);
     }
 
+    /** Indicate that a worker is mid-run, fetching inventory. */
     public function running(): static
     {
         return $this->state(fn (): array => [
@@ -58,6 +60,7 @@ class SyncRunFactory extends Factory
         ]);
     }
 
+    /** Indicate that the run failed at credential validation. */
     public function failed(): static
     {
         return $this->state(fn (): array => [
