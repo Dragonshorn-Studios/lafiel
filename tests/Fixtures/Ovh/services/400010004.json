@@ -1,0 +1,59 @@
+{
+    "serviceId": 400010004,
+    "parentServiceId": null,
+    "resource": {
+        "displayName": "ip-synthetic-01",
+        "name": "ip-synthetic-01",
+        "state": "active",
+        "product": {
+            "name": "ip",
+            "description": "IP block"
+        }
+    },
+    "route": {
+        "path": "/ip/{ip}",
+        "url": "/ip/198.51.100.0/28",
+        "vars": [
+            {
+                "key": "ip",
+                "value": "198.51.100.0/28"
+            }
+        ]
+    },
+    "billing": {
+        "expirationDate": null,
+        "nextBillingDate": "2026-10-01T16:33:05+02:00",
+        "plan": {
+            "code": "ip-block-2025",
+            "invoiceName": "IP block"
+        },
+        "pricing": null,
+        "renew": {
+            "capacities": {
+                "mode": ["automatic", "manual"]
+            },
+            "current": {
+                "mode": "automatic",
+                "nextDate": "2026-10-01T16:33:05+02:00",
+                "period": "P1M"
+            }
+        },
+        "lifecycle": {
+            "capacities": {
+                "actions": []
+            },
+            "current": {
+                "creationDate": "2026-04-01T16:33:05+02:00",
+                "pendingActions": [],
+                "state": "active",
+                "terminationDate": null
+            }
+        },
+        "engagement": null,
+        "group": null
+    },
+    "customer": {
+        "contacts": []
+    },
+    "tags": []
+}

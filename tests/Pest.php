@@ -206,22 +206,34 @@ function ovhAdapter(FakeOvhApi $api): OvhProviderAdapter
 }
 
 /**
- * The complete run A inventory: the fake serves the /me identity, the
- * run A /services listing, one renewal strategy per listed service,
- * and the family catalogs for fallback pricing.
+ * Scripted OVH responses for one complete inventory listing: `/me`,
+ * the `/services` id list, each expanded `/services/{id}`, each
+ * `/service/{id}/renew` fallback payload, and the family catalogs.
+ *
+ * @return array<string, mixed>
  */
-function ovhServicesFake(string $listing = 'services-run-a.json'): FakeOvhApi
+function ovhFixtureResponses(string $listing = 'services-run-a.json'): array
 {
-    $services = ovhFixture($listing);
-    $responses = ['/me' => ovhFixture('me.json'), '/services' => $services];
+    $ids = ovhFixture($listing);
+    $responses = ['/me' => ovhFixture('me.json'), '/services' => $ids];
 
-    foreach ($services as $service) {
-        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
+    foreach ($ids as $id) {
+        $responses['/services/'.$id] = ovhFixture('services/'.$id.'.json');
+        $responses['/service/'.$id.'/renew'] = ovhFixture('service-renew/'.$id.'.json');
     }
 
     $responses['/order/catalog/formatted/vps'] = ovhFixture('catalog/vps-eu.json');
     $responses['/order/catalog/formatted/domain'] = ovhFixture('catalog/domain-eu.json');
     $responses['/order/catalog/formatted/ip'] = ovhFixture('catalog/ip-eu.json');
 
-    return new FakeOvhApi($responses);
+    return $responses;
+}
+
+/**
+ * The complete run A inventory against the published OVH payload
+ * shapes (id listing, expanded services, official /renew lists).
+ */
+function ovhServicesFake(string $listing = 'services-run-a.json'): FakeOvhApi
+{
+    return new FakeOvhApi(ovhFixtureResponses($listing));
 }

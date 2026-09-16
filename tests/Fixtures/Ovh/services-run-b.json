@@ -1,38 +1,6 @@
 [
-    {
-        "serviceId": 400010001,
-        "serviceName": "vps-synthetic-01",
-        "status": "ok",
-        "creation": "2026-01-15T09:24:31+01:00",
-        "offer": "vps-essentials-2025",
-        "route": "/vps/vps-synthetic-01",
-        "engagedUpTo": null
-    },
-    {
-        "serviceId": 400010002,
-        "serviceName": "domain-zone-synthetic-01",
-        "status": "ok",
-        "creation": "2026-02-20T14:02:10+01:00",
-        "offer": "zone-2025",
-        "route": "/domain/zone/domain-synthetic-01.eu.org",
-        "engagedUpTo": null
-    },
-    {
-        "serviceId": 400010003,
-        "serviceName": "cloud-project-synthetic-01",
-        "status": "ok",
-        "creation": "2026-03-08T11:47:52+01:00",
-        "offer": "project-2025",
-        "route": "/cloud/project/cloud-project-synthetic-01",
-        "engagedUpTo": null
-    },
-    {
-        "serviceId": 400010005,
-        "serviceName": "failover-synthetic-01",
-        "status": "ok",
-        "creation": "2026-01-20T10:00:00+01:00",
-        "offer": "ip-failover-2025",
-        "route": "/ip/failover-synthetic-01.example.eu.org",
-        "engagedUpTo": null
-    }
+    400010001,
+    400010002,
+    400010003,
+    400010005
 ]

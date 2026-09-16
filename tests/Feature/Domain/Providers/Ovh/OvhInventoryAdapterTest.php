@@ -37,14 +37,27 @@ it('maps the fixture inventory onto canonical items by service id', function () 
         ->and($byId['400010005']->providerType)->toBe('ip');
 });
 
-it('preserves the listing lifecycle metadata next to the canonical item', function () {
+it('preserves the expanded-service lifecycle metadata next to the canonical item', function () {
     $batch = ovhAdapter(ovhServicesFake())->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
 
     $vps = collect($batch->items)->firstWhere(fn ($item) => $item->externalId === '400010001');
 
     expect($vps->metadata['offer'])->toBe('vps-essentials-2025')
-        ->and($vps->metadata['status'])->toBe('ok')
-        ->and($vps->metadata['creation'])->toBe('2026-01-15T09:24:31+01:00');
+        ->and($vps->metadata['status'])->toBe('active')
+        ->and($vps->metadata['creation'])->toBe('2026-01-15T09:24:31+01:00')
+        ->and($vps->metadata['nextBillingDate'])->toBe('2026-10-15T09:24:31+01:00')
+        ->and($vps->metadata['renewMode'])->toBe('automatic')
+        ->and($vps->metadata['renewPeriod'])->toBe('P1M');
+});
+
+it('loads each listing id through GET /services/{id}', function () {
+    $api = ovhServicesFake();
+
+    ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
+
+    expect($api->callCount('/services'))->toBe(1)
+        ->and($api->callCount('/services/400010001'))->toBe(1)
+        ->and($api->callCount('/services/400010005'))->toBe(1);
 });
 
 it('produces a batch that passes canonical validation', function () {
@@ -55,9 +68,9 @@ it('produces a batch that passes canonical validation', function () {
     expect(true)->toBeTrue();
 });
 
-it('classifies an unmapped route as other with a warning', function () {
+it('classifies an unmapped route path as other with a warning', function () {
     $api = ovhServicesFake();
-    $api->responses['/services'][0]['route'] = '/future/product/future-synthetic-01';
+    $api->responses['/services/400010001']['route']['path'] = '/future/product/{serviceName}';
 
     $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
 
@@ -65,12 +78,12 @@ it('classifies an unmapped route as other with a warning', function () {
 
     expect($item->category)->toBe('other')
         ->and($item->providerType)->toBe('future')
-        ->and($batch->warnings)->toContain('service [400010001] uses unmapped route [/future/product/future-synthetic-01]; classified as other.');
+        ->and($batch->warnings)->toContain('service [400010001] uses unmapped route [/future/product/{serviceName}]; classified as other.');
 });
 
 it('classifies a non-string route as other with a warning', function () {
     $api = ovhServicesFake();
-    $api->responses['/services'][0]['route'] = ['/vps', 'vps-synthetic-01'];
+    $api->responses['/services/400010001']['route'] = ['/vps', 'vps-synthetic-01'];
 
     $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
 
@@ -85,13 +98,26 @@ it('classifies a non-string route as other with a warning', function () {
 it('skips malformed listing entries and reports a partial inventory', function () {
     $api = ovhServicesFake();
     $api->responses['/services'][] = ['serviceName' => 'no-service-id'];
-    $api->responses['/services'][] = 'not even an entry';
+    $api->responses['/services'][] = 'not even an id';
 
     $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
 
     expect($batch->completeness)->toBe(BatchCompleteness::Partial)
         ->and($batch->items)->toHaveCount(5)
         ->and($batch->warnings)->toContain('2 listing entries were malformed and are skipped; inventory is partial.');
+});
+
+it('skips a service whose expanded fetch fails and reports a partial inventory', function () {
+    $api = ovhServicesFake()->throwOn('/services/400010002', [
+        new TransientProviderException('OVH API server error for [/services/400010002] (HTTP 503).'),
+    ]);
+
+    $batch = ovhAdapter($api)->fetchInventory(ovhContext(ProviderAccount::factory()->create()));
+
+    expect($batch->completeness)->toBe(BatchCompleteness::Partial)
+        ->and($batch->items)->toHaveCount(4)
+        ->and(collect($batch->items)->pluck('externalId')->all())->not->toContain('400010002')
+        ->and($batch->warnings)->toContain('service [400010002] could not be loaded from [/services/400010002]; it is skipped.');
 });
 
 it('fails the whole phase when the listing fails transiently', function () {

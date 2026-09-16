@@ -42,20 +42,7 @@ beforeEach(function () {
  */
 function ovhRunPayload(string $listing = 'services-run-a.json'): array
 {
-    $services = ovhFixture($listing);
-    $responses = [
-        '/me' => ovhFixture('me.json'),
-        '/services' => $services,
-        '/order/catalog/formatted/vps' => ovhFixture('catalog/vps-eu.json'),
-        '/order/catalog/formatted/domain' => ovhFixture('catalog/domain-eu.json'),
-        '/order/catalog/formatted/ip' => ovhFixture('catalog/ip-eu.json'),
-    ];
-
-    foreach ($services as $service) {
-        $responses['/service/'.$service['serviceId'].'/renew'] = ovhFixture('service-renew/'.$service['serviceId'].'.json');
-    }
-
-    return $responses;
+    return ovhFixtureResponses($listing);
 }
 
 /**
@@ -197,7 +184,7 @@ it('never marks a service missing from a partial inventory', function () {
 
     $ip = Service::query()->where('external_id', '400010004')->sole();
     $ipCharge = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $account->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:service:400010004', $account->id))
         ->sole();
 
     expect($run->refresh()->status)->toBe(SyncStatus::Partial)
@@ -283,7 +270,7 @@ it('scopes services and charges to their own account', function () {
         expect(Service::query()->where('provider_account_id', $account->id)->count())->toBe(5)
             ->and(CostItem::query()
                 ->where('logical_charge_key', 'like', "ovh:account:{$account->id}:charge:%")
-                ->count())->toBe(4);
+                ->count())->toBe(5);
     }
 
     // Run B omits the IP block for account A only.
@@ -292,10 +279,10 @@ it('scopes services and charges to their own account', function () {
     ovhSync($accountA);
 
     $chargeA = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $accountA->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:service:400010004', $accountA->id))
         ->sole();
     $chargeB = CostItem::query()
-        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:renew:400010004', $accountB->id))
+        ->where('logical_charge_key', sprintf('ovh:account:%d:charge:ovh:service:400010004', $accountB->id))
         ->sole();
 
     expect($chargeA->refresh()->valid_to)->not->toBeNull()
@@ -354,11 +341,10 @@ it('captures a snapshot after a partial sync but writes nothing when a run fails
     $api = ovhStack();
     $account = ovhAccount();
 
-    // Partial cost phase: the cloud project's strategy fetch fails, so
-    // the run is partial and a snapshot is still captured (the inputs
-    // moved).
-    $api->throwOn('/service/400010003/renew', [
-        new TransientProviderException('OVH API server error for [/service/400010003/renew] (HTTP 503).'),
+    // Partial cost phase: the IP catalog fallback fails, so the run is
+    // partial and a snapshot is still captured (the inputs moved).
+    $api->throwOn('/order/catalog/formatted/ip', [
+        new TransientProviderException('OVH rate limit reached for [/order/catalog/formatted/ip] (HTTP 429).'),
     ]);
 
     ovhSync($account);
@@ -390,7 +376,7 @@ it('records inventory and renewal quotes as the supported capabilities', functio
         ->pluck('supported', 'capability_key');
 
     expect($run->refresh()->counts)->toHaveKey('inventory')
-        ->and($run->counts['cost_facts'])->toBe(['seen' => 4, 'created' => 4, 'superseded' => 0, 'updated' => 0, 'renewals' => 0, 'ended' => 0])
+        ->and($run->counts['cost_facts'])->toBe(['seen' => 5, 'created' => 5, 'superseded' => 0, 'updated' => 0, 'renewals' => 4, 'ended' => 0])
         ->and($states[ProviderCapability::Inventory->value])->toBeTrue()
         ->and($states[ProviderCapability::RenewalQuotes->value])->toBeTrue()
         ->and($states[ProviderCapability::Subscriptions->value])->toBeFalse()

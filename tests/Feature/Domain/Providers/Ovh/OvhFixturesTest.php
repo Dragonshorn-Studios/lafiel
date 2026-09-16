@@ -20,18 +20,26 @@ it('ships only parseable JSON fixtures', function () {
 it('covers the required cases without secret material', function () {
     $runA = ovhFixture('services-run-a.json');
     $runB = ovhFixture('services-run-b.json');
-    $idsOf = fn (array $run): array => array_column($run, 'serviceId');
 
-    // Missing on the next complete run: present in run A, absent in run B.
-    expect($idsOf($runA))->toContain(400010004)
-        ->and($idsOf($runB))->not->toContain(400010004);
+    expect($runA)->toContain(400010004)
+        ->and($runB)->not->toContain(400010004);
 
-    // A multi-service renewal strategy and a renew payload without a
-    // selected price (Public Cloud gap + catalog fallback) exist.
-    expect(count(ovhFixture('service-renew/400010001.json')['services']))->toBe(2)
-        ->and(count(ovhFixture('service-renew/400010001.json')['prices']))->toBe(2)
-        ->and(ovhFixture('service-renew/400010003.json')['prices'])->toBe([])
-        ->and(ovhFixture('service-renew/400010004.json')['prices'])->toBe([]);
+    $vps = ovhFixture('services/400010001.json');
+    $failover = ovhFixture('services/400010005.json');
+    $cloud = ovhFixture('services/400010003.json');
+    $ip = ovhFixture('services/400010004.json');
+
+    expect($vps['billing']['pricing']['priceInUcents'])->toBe(700000000)
+        ->and($failover['billing']['pricing']['priceInUcents'])->toBe(200000000)
+        ->and($cloud['billing']['pricing']['pricingType'])->toBe('consumption')
+        ->and($ip['billing']['pricing'])->toBeNull();
+
+    $vpsRenew = ovhFixture('service-renew/400010001.json');
+
+    expect($vpsRenew[0]['strategies'])->toHaveCount(2)
+        ->and($vpsRenew[0]['strategies'][1]['services'])->toBe([400010001, 400010005])
+        ->and(ovhFixture('service-renew/400010003.json'))->toBe([])
+        ->and(ovhFixture('service-renew/400010004.json'))->toBe([]);
 });
 
 it('carries no credential-shaped value anywhere', function () {
