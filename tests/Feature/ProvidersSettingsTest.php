@@ -131,6 +131,126 @@ it('accepts every whitelisted endpoint through the form', function () {
             ->credentials()->latest('id')->first()->payload['endpoint'])->toBe('ovh-us');
 });
 
+it('tests draft credentials without storing them', function () {
+    fakeOvhClient(new FakeOvhApi(['/me' => ovhFixture('me.json')]));
+
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('testCredentials')
+        ->assertHasNoErrors()
+        ->assertSet('draftCheck.status', 'connected')
+        ->assertSee(__('The provider accepted the credentials.'));
+
+    expect(ProviderAccount::query()->count())->toBe(0);
+});
+
+it('reports a rejected draft without creating an account', function () {
+    $api = (new FakeOvhApi)->throwOn('/me', [
+        new InvalidCredentialsException('OVH rejected the credentials for [/me] (HTTP 401).'),
+    ]);
+    fakeOvhClient($api);
+
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('testCredentials')
+        ->assertSet('draftCheck.status', 'rejected')
+        ->assertSee('OVH rejected the credentials for [/me] (HTTP 401).');
+
+    expect(ProviderAccount::query()->count())->toBe(0)
+        ->and($api->callCount('/me'))->toBe(1);
+});
+
+it('reports an unreachable draft probe', function () {
+    $api = (new FakeOvhApi)->throwOn('/me', [
+        new TransientProviderException('OVH API could not be reached for [/me].'),
+    ]);
+    fakeOvhClient($api);
+
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('testCredentials')
+        ->assertSet('draftCheck.status', 'unreachable');
+});
+
+it('validates the draft fields before probing the provider', function () {
+    $api = new FakeOvhApi;
+    fakeOvhClient($api);
+
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->call('testCredentials')
+        ->assertHasErrors(['credential.endpoint', 'credential.application_key', 'credential.application_secret', 'credential.consumer_key'])
+        ->assertSet('draftCheck', null);
+
+    expect($api->callCount('/me'))->toBe(0);
+});
+
+it('voids the draft check when a credential field changes', function () {
+    fakeOvhClient(new FakeOvhApi(['/me' => ovhFixture('me.json')]));
+
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->set('credential.endpoint', 'ovh-eu')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('testCredentials')
+        ->assertSet('draftCheck.status', 'connected')
+        ->set('credential.consumer_key', 'edited-after-the-test')
+        ->assertSet('draftCheck', null);
+});
+
+it('tests draft credentials on the edit form against the existing account', function () {
+    fakeOvhClient(new FakeOvhApi(['/me' => ovhFixture('me.json')]));
+
+    $account = ProviderAccount::factory()
+        ->has(ProviderCredential::factory(), 'credentials')
+        ->create(['provider_key' => 'ovh']);
+
+    providersPage()
+        ->call('edit', $account->id)
+        ->set('credential.endpoint', 'ovh-ca')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('testCredentials')
+        ->assertSet('draftCheck.status', 'connected');
+
+    // A draft pass never marks the stored credential verified.
+    expect($account->credentials()->latest('id')->first()->refresh()->verified_at)->toBeNull();
+});
+
+it('walks through the OVH setup guide in the panel', function () {
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->assertSee('https://eu.api.ovh.com/createApp/', false)
+        ->assertSee('https://api.us.ovhcloud.com/createApp/', false)
+        ->assertSee('https://eu.api.ovh.com/1.0/auth/credential', false)
+        ->assertSee('validationUrl')
+        ->assertSee('/order/catalog/formatted/*')
+        ->assertSee('/me/bill*')
+        ->assertSee('OVHcloud Europe (ovh-eu)')
+        ->assertSee(__('Test credentials'));
+});
+
 it('marks the connection verified when the test succeeds', function () {
     fakeOvhClient(new FakeOvhApi(['/me' => ovhFixture('me.json')]));
 

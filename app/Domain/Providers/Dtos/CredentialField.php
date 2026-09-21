@@ -16,7 +16,7 @@ final readonly class CredentialField
     public const TYPE_SELECT = 'select';
 
     /**
-     * @param  list<string>  $options  select choices, in render order
+     * @param  array<string, string>  $options  select choices as value => label, in render order
      */
     public function __construct(
         public string $name,

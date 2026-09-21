@@ -34,6 +34,11 @@ final class ContaboCredentialSchema implements CredentialSchema
         return 'https://api.contabo.com/';
     }
 
+    public static function helpSteps(): array
+    {
+        return [];
+    }
+
     public static function summary(array $payload): string
     {
         return 'OAuth2 client';
