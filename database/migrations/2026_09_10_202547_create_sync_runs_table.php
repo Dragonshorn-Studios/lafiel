@@ -22,9 +22,15 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        DB::statement(
-            "ALTER TABLE sync_runs ADD CHECK (status IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled'))"
-        );
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement(
+                "CREATE TRIGGER check_sync_runs_status BEFORE INSERT ON sync_runs WHEN NEW.status NOT IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;"
+            );
+        } else {
+            DB::statement(
+                "ALTER TABLE sync_runs ADD CHECK (status IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled'))"
+            );
+        }
     }
 
     public function down(): void

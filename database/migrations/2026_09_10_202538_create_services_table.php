@@ -35,9 +35,15 @@ return new class extends Migration
             .'WHERE external_id IS NOT NULL'
         );
 
-        DB::statement(
-            "ALTER TABLE services ADD CHECK (lifecycle_state IN ('active', 'missing', 'inactive'))"
-        );
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement(
+                "CREATE TRIGGER check_services_lifecycle BEFORE INSERT ON services WHEN NEW.lifecycle_state NOT IN ('active', 'missing', 'inactive') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;"
+            );
+        } else {
+            DB::statement(
+                "ALTER TABLE services ADD CHECK (lifecycle_state IN ('active', 'missing', 'inactive'))"
+            );
+        }
     }
 
     public function down(): void
