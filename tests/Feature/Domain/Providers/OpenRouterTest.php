@@ -83,7 +83,7 @@ test('openrouter adapter fetches inventory', function () {
     /** @var InventoryItem $item */
     $item = $batch->items[0];
     expect($item->externalId)->toEqual('openrouter:key');
-    expect($item->category)->toEqual('ai');
+    expect($item->category)->toEqual('saas');
     expect($item->name)->toEqual('OpenRouter (Production Key)');
 });
 
@@ -109,7 +109,7 @@ test('openrouter adapter fetches cost facts from credits and key usage', functio
         observedAt: $context->now,
         sourceRef: 'openrouter:/auth/key',
         items: [
-            new InventoryItem('openrouter:key', 'ai', 'OpenRouter Key', 'api_key'),
+            new InventoryItem('openrouter:key', 'saas', 'OpenRouter Key', 'api_key'),
         ],
     );
 

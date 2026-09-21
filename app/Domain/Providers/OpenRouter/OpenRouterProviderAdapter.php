@@ -64,7 +64,7 @@ final class OpenRouterProviderAdapter implements ProviderAdapter
         $items = [
             new InventoryItem(
                 externalId: 'openrouter:key',
-                category: 'ai',
+                category: 'saas',
                 name: "OpenRouter ({$label})",
                 providerType: 'api_key',
             ),
@@ -123,7 +123,7 @@ final class OpenRouterProviderAdapter implements ProviderAdapter
             serviceExternalIds: ['openrouter:key'],
             sourceKind: SourceKind::Usage,
             chargeKind: ChargeKind::Usage,
-            period: Period::Monthly,
+            period: Period::Unknown,
             evidenceState: EvidenceState::Actual,
             amount: $amount,
             validFrom: $context->now->startOfMonth(),
