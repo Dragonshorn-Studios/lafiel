@@ -4,7 +4,11 @@ use App\Domain\Costs\AiSubscriptionPresets;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Inventory\Models\Service;
 use App\Models\User;
-use Livewire\Livewire;
+use Illuminate\Support\Facades\Http;
+
+beforeEach(function () {
+    AiSubscriptionPresets::clearCache();
+});
 
 test('ai subscription presets returns valid configuration array', function () {
     $all = AiSubscriptionPresets::all();
@@ -47,4 +51,44 @@ test('selecting an ai subscription preset populates the form and saves the cost 
     expect($costItem)->not->toBeNull();
     expect($costItem->amount_minor)->toEqual(2000);
     expect($costItem->currency)->toEqual('USD');
+});
+
+test('ai subscription presets dynamically fetches remote url when configured', function () {
+    config(['services.ai_presets_url' => 'https://example.com/ai_presets.json']);
+
+    Http::fake([
+        'https://example.com/ai_presets.json' => Http::response([
+            'custom:super_ai' => [
+                'key' => 'custom:super_ai',
+                'label' => 'Custom Provider — Super AI ($50/mo)',
+                'vendor' => 'Custom Provider',
+                'name' => 'Super AI',
+                'category' => 'ai',
+                'amount' => '50.00',
+                'currency' => 'USD',
+                'period' => 'monthly',
+                'auto_renew' => true,
+                'url' => 'https://custom.ai',
+            ],
+        ], 200),
+    ]);
+
+    $all = AiSubscriptionPresets::all();
+
+    expect($all)->toHaveKey('custom:super_ai');
+    expect($all['custom:super_ai']['amount'])->toEqual('50.00');
+    expect($all)->toHaveKey('openai:chatgpt_plus');
+});
+
+test('ai subscription presets falls back to default when remote fetch fails', function () {
+    config(['services.ai_presets_url' => 'https://example.com/ai_presets.json']);
+
+    Http::fake([
+        'https://example.com/ai_presets.json' => Http::response(null, 500),
+    ]);
+
+    $all = AiSubscriptionPresets::all();
+
+    expect($all)->toHaveKey('openai:chatgpt_plus');
+    expect($all)->not->toHaveKey('custom:super_ai');
 });

@@ -2,8 +2,15 @@
 
 namespace App\Domain\Costs;
 
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Throwable;
+
 final class AiSubscriptionPresets
 {
+    private const CACHE_KEY = 'ai_subscription_presets_v1';
+    private const CACHE_TTL = 86400; // 24 hours
+
     /**
      * @return array<string, array{
      *     key: string,
@@ -19,6 +26,55 @@ final class AiSubscriptionPresets
      * }>
      */
     public static function all(): array
+    {
+        $default = self::defaultPresets();
+
+        $url = config('services.ai_presets_url') ?? env('AI_PRESETS_URL');
+
+        if (! is_string($url) || trim($url) === '') {
+            return $default;
+        }
+
+        try {
+            return Cache::remember(self::CACHE_KEY, self::CACHE_TTL, function () use ($default, $url) {
+                try {
+                    $response = Http::timeout(5)->acceptJson()->get($url);
+
+                    if ($response->successful()) {
+                        $remote = $response->json();
+
+                        if (is_array($remote) && $remote !== []) {
+                            return self::mergePresets($default, $remote);
+                        }
+                    }
+                } catch (Throwable) {
+                    // Fallback to built-in presets on connection/HTTP errors
+                }
+
+                return $default;
+            });
+        } catch (Throwable) {
+            return $default;
+        }
+    }
+
+    /**
+     * Built-in fallback catalog of subscription plans aligned with AIPricing.guru data.
+     *
+     * @return array<string, array{
+     *     key: string,
+     *     label: string,
+     *     vendor: string,
+     *     name: string,
+     *     category: string,
+     *     amount: string,
+     *     currency: string,
+     *     period: string,
+     *     auto_renew: bool,
+     *     url: string
+     * }>
+     */
+    public static function defaultPresets(): array
     {
         return [
             'openai:chatgpt_plus' => [
@@ -271,5 +327,44 @@ final class AiSubscriptionPresets
         }
 
         return $options;
+    }
+
+    /**
+     * Merge remote presets array into built-in defaults.
+     *
+     * @param  array<string, array<string, mixed>>  $default
+     * @param  array<string, mixed>  $remote
+     * @return array<string, array<string, mixed>>
+     */
+    private static function mergePresets(array $default, array $remote): array
+    {
+        foreach ($remote as $key => $preset) {
+            if (! is_array($preset) || ! isset($preset['key'], $preset['label'], $preset['amount'])) {
+                continue;
+            }
+
+            $default[(string) $key] = [
+                'key' => (string) $preset['key'],
+                'label' => (string) $preset['label'],
+                'vendor' => (string) ($preset['vendor'] ?? 'AI'),
+                'name' => (string) ($preset['name'] ?? $preset['label']),
+                'category' => (string) ($preset['category'] ?? 'ai'),
+                'amount' => (string) $preset['amount'],
+                'currency' => (string) ($preset['currency'] ?? 'USD'),
+                'period' => (string) ($preset['period'] ?? 'monthly'),
+                'auto_renew' => (bool) ($preset['auto_renew'] ?? true),
+                'url' => (string) ($preset['url'] ?? ''),
+            ];
+        }
+
+        return $default;
+    }
+
+    /**
+     * Clear cached presets (e.g. for testing or forced refresh).
+     */
+    public static function clearCache(): void
+    {
+        Cache::forget(self::CACHE_KEY);
     }
 }
