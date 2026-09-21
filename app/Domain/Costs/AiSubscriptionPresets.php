@@ -9,27 +9,17 @@ use Throwable;
 final class AiSubscriptionPresets
 {
     private const CACHE_KEY = 'ai_subscription_presets_v1';
+
     private const CACHE_TTL = 86400; // 24 hours
 
     /**
-     * @return array<string, array{
-     *     key: string,
-     *     label: string,
-     *     vendor: string,
-     *     name: string,
-     *     category: string,
-     *     amount: string,
-     *     currency: string,
-     *     period: string,
-     *     auto_renew: bool,
-     *     url: string
-     * }>
+     * @return array<string, array<string, mixed>>
      */
     public static function all(): array
     {
         $default = self::defaultPresets();
 
-        $url = config('services.ai_presets_url') ?? env('AI_PRESETS_URL');
+        $url = config('services.ai_presets_url');
 
         if (! is_string($url) || trim($url) === '') {
             return $default;
@@ -61,18 +51,7 @@ final class AiSubscriptionPresets
     /**
      * Built-in fallback catalog of subscription plans aligned with AIPricing.guru data.
      *
-     * @return array<string, array{
-     *     key: string,
-     *     label: string,
-     *     vendor: string,
-     *     name: string,
-     *     category: string,
-     *     amount: string,
-     *     currency: string,
-     *     period: string,
-     *     auto_renew: bool,
-     *     url: string
-     * }>
+     * @return array<string, array<string, mixed>>
      */
     public static function defaultPresets(): array
     {
@@ -297,22 +276,13 @@ final class AiSubscriptionPresets
     }
 
     /**
-     * @return array{
-     *     key: string,
-     *     label: string,
-     *     vendor: string,
-     *     name: string,
-     *     category: string,
-     *     amount: string,
-     *     currency: string,
-     *     period: string,
-     *     auto_renew: bool,
-     *     url: string
-     * }|null
+     * @return array<string, mixed>|null
      */
     public static function find(string $key): ?array
     {
-        return self::all()[$key] ?? null;
+        $preset = self::all()[$key] ?? null;
+
+        return is_array($preset) ? $preset : null;
     }
 
     /**
@@ -323,7 +293,9 @@ final class AiSubscriptionPresets
         $options = [];
 
         foreach (self::all() as $key => $preset) {
-            $options[$key] = $preset['label'];
+            if (isset($preset['label']) && is_string($preset['label'])) {
+                $options[$key] = $preset['label'];
+            }
         }
 
         return $options;
