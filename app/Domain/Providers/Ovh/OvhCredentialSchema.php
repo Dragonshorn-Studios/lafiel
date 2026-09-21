@@ -57,7 +57,7 @@ final class OvhCredentialSchema implements CredentialSchema
     public static function fields(): array
     {
         return [
-            new CredentialField('endpoint', 'Endpoint', CredentialField::TYPE_SELECT, options: self::ENDPOINTS),
+            new CredentialField('endpoint', 'Endpoint', CredentialField::TYPE_SELECT, options: self::ENDPOINTS, placeholder: 'Choose the OVHcloud region…'),
             new CredentialField('application_key', 'Application key'),
             new CredentialField('application_secret', 'Application secret', CredentialField::TYPE_PASSWORD),
             new CredentialField('consumer_key', 'Consumer key', CredentialField::TYPE_PASSWORD),

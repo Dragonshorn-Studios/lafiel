@@ -129,7 +129,7 @@ new #[Title('Providers')] class extends Component {
 
     public function connect(): void
     {
-        $validated = $this->validate($this->formRules());
+        $validated = $this->validate($this->formRules(), attributes: $this->formAttributes());
 
         try {
             app(ConnectProviderAccount::class)->connect($this->providerKey, $this->actionInput($validated));
@@ -150,7 +150,7 @@ new #[Title('Providers')] class extends Component {
     {
         $account = $this->account((int) $this->editingAccountId);
 
-        $validated = $this->validate($this->formRules());
+        $validated = $this->validate($this->formRules(), attributes: $this->formAttributes());
 
         try {
             app(UpdateProviderCredentials::class)->update($account, $this->actionInput($validated));
@@ -409,6 +409,24 @@ new #[Title('Providers')] class extends Component {
         }
 
         return $rules;
+    }
+
+    /**
+     * Human-readable attribute names for validation messages, so an
+     * error reads "the endpoint field" instead of the dotted payload
+     * key the form binds.
+     *
+     * @return array<string, string>
+     */
+    private function formAttributes(): array
+    {
+        $attributes = ['displayName' => __('Display name')];
+
+        foreach ($this->activeSchema::fields() as $field) {
+            $attributes['credential.'.$field->name] = __($field->label);
+        }
+
+        return $attributes;
     }
 
     /**
@@ -781,7 +799,12 @@ new #[Title('Providers')] class extends Component {
 
             @foreach ($this->activeSchema::fields() as $field)
                 @if ($field->isSelect())
-                    <flux:select wire:model="credential.{{ $field->name }}" :label="__($field->label)">
+                    <flux:select
+                        wire:model="credential.{{ $field->name }}"
+                        :label="__($field->label)"
+                        :placeholder="$field->placeholder !== null ? __($field->placeholder) : null"
+                        required
+                    >
                         @foreach ($field->options as $option)
                             <flux:select.option :value="$option">{{ $option }}</flux:select.option>
                         @endforeach

@@ -12,6 +12,7 @@ use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
 use App\Domain\Providers\Ovh\BuildOvhApi;
 use App\Domain\Providers\Ovh\OvhApi;
+use App\Domain\Providers\Ovh\OvhCredentialSchema;
 use App\Domain\Providers\Ovh\OvhProviderAdapter;
 use App\Domain\Sync\Enums\SyncStatus;
 use App\Domain\Sync\Models\SyncRun;
@@ -90,6 +91,44 @@ it('connects an account through the form without rendering the secret', function
     expect($account->credentials)->toHaveCount(1)
         ->and($raw->payload)->not->toContain(ovhPayload()['application_secret'])
         ->and($raw->payload)->not->toContain(ovhPayload()['consumer_key']);
+});
+
+it('rejects a connect when the endpoint was never chosen', function () {
+    // The select displays a placeholder for the untouched `''` value —
+    // the option the browser shows must match what the form submits
+    // (issue #47).
+    providersPage()
+        ->call('add')
+        ->set('providerKey', 'ovh')
+        ->set('displayName', 'OVH main')
+        ->set('credential.application_key', ovhPayload()['application_key'])
+        ->set('credential.application_secret', ovhPayload()['application_secret'])
+        ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+        ->call('connect')
+        ->assertHasErrors('credential.endpoint')
+        ->assertSee('The Endpoint field is required')
+        ->assertSee('Choose the OVHcloud region…');
+
+    expect(ProviderAccount::query()->count())->toBe(0);
+});
+
+it('accepts every whitelisted endpoint through the form', function () {
+    foreach (OvhCredentialSchema::ENDPOINTS as $endpoint) {
+        providersPage()
+            ->call('add')
+            ->set('providerKey', 'ovh')
+            ->set('displayName', 'OVH '.$endpoint)
+            ->set('credential.endpoint', $endpoint)
+            ->set('credential.application_key', ovhPayload()['application_key'])
+            ->set('credential.application_secret', ovhPayload()['application_secret'])
+            ->set('credential.consumer_key', ovhPayload()['consumer_key'])
+            ->call('connect')
+            ->assertHasNoErrors();
+    }
+
+    expect(ProviderAccount::query()->count())->toBe(count(OvhCredentialSchema::ENDPOINTS))
+        ->and(ProviderAccount::query()->where('display_name', 'OVH ovh-us')->sole()
+            ->credentials()->latest('id')->first()->payload['endpoint'])->toBe('ovh-us');
 });
 
 it('marks the connection verified when the test succeeds', function () {
