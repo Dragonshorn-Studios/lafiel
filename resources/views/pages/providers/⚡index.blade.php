@@ -63,6 +63,15 @@ new #[Title('Providers')] class extends Component {
      */
     public array $connectionChecks = [];
 
+    /**
+     * Outcome of the last draft-credential test in the panel. Voided by
+     * any credential edit, a provider swap, or reopening the form — it
+     * certifies exactly the field values it probed.
+     *
+     * @var array{status: string, message: string}|null
+     */
+    public ?array $draftCheck = null;
+
     #[Computed]
     public function schemas(): CredentialSchemas
     {
@@ -90,6 +99,12 @@ new #[Title('Providers')] class extends Component {
     {
         $this->resetCredentialFields();
         $this->resetValidation();
+    }
+
+    public function updatedCredential(): void
+    {
+        // Editing any credential field invalidates the last draft test.
+        $this->draftCheck = null;
     }
 
     public function add(): void
@@ -168,6 +183,40 @@ new #[Title('Providers')] class extends Component {
     public function cancelPanel(): void
     {
         $this->closePanel();
+    }
+
+    /**
+     * Test the panel's draft credentials through the same adapter
+     * probe a stored credential takes, before anything is saved: a
+     * transient account on the add form, the persisted account on
+     * edit. A draft pass never writes `verified_at` — only the saved
+     * credential's own test does that.
+     */
+    public function testCredentials(): void
+    {
+        $validated = $this->validate($this->credentialRules(), attributes: $this->formAttributes());
+
+        $account = $this->editingAccountId !== null
+            ? $this->account($this->editingAccountId)
+            : new ProviderAccount(['provider_key' => $this->providerKey]);
+
+        try {
+            $check = app(TestProviderConnection::class)->checkPayload(
+                $account,
+                $this->activeSchema::payload($validated['credential']),
+            );
+        } catch (UnsupportedProviderException) {
+            // `providerKey` is client-editable; an unknown one is a
+            // form error, not a server error.
+            $this->addError('providerKey', __('This provider is not available.'));
+
+            return;
+        }
+
+        $this->draftCheck = [
+            'status' => $check->status->value,
+            'message' => $check->warning ?? __('The provider accepted the credentials.'),
+        ];
     }
 
     /**
@@ -402,7 +451,18 @@ new #[Title('Providers')] class extends Component {
      */
     private function formRules(): array
     {
-        $rules = ['displayName' => ['required', 'string', 'max:255']];
+        return ['displayName' => ['required', 'string', 'max:255'], ...$this->credentialRules()];
+    }
+
+    /**
+     * The draft credential test validates only the schema's fields —
+     * the display name is irrelevant until the credentials are saved.
+     *
+     * @return array<string, list<string>>
+     */
+    private function credentialRules(): array
+    {
+        $rules = [];
 
         foreach ($this->activeSchema::rules() as $key => $cases) {
             $rules['credential.'.$key] = $cases;
@@ -444,6 +504,7 @@ new #[Title('Providers')] class extends Component {
     private function resetCredentialFields(): void
     {
         $this->credential = [];
+        $this->draftCheck = null;
 
         foreach ($this->activeSchema::fields() as $field) {
             $this->credential[$field->name] = '';
@@ -805,8 +866,8 @@ new #[Title('Providers')] class extends Component {
                         :placeholder="$field->placeholder !== null ? __($field->placeholder) : null"
                         required
                     >
-                        @foreach ($field->options as $option)
-                            <flux:select.option :value="$option">{{ $option }}</flux:select.option>
+                        @foreach ($field->options as $value => $label)
+                            <flux:select.option :value="$value">{{ $label }}</flux:select.option>
                         @endforeach
                     </flux:select>
                 @else
@@ -827,9 +888,32 @@ new #[Title('Providers')] class extends Component {
                 </p>
             @endif
 
+            {{-- The last draft test's outcome, styled like the account
+                 cards' connection checks; any credential edit voids it. --}}
+            @if ($draftCheck !== null)
+                <p class="text-sm" data-test="draft-check">
+                    @if ($draftCheck['status'] === ConnectionStatus::Connected->value)
+                        <flux:icon.check-circle variant="mini" class="mr-1 inline size-4 text-success" />
+                    @elseif ($draftCheck['status'] === ConnectionStatus::Rejected->value)
+                        <flux:icon.exclamation-triangle variant="mini" class="mr-1 inline size-4 text-danger" />
+                    @else
+                        <flux:icon.clock variant="mini" class="mr-1 inline size-4 text-attention" />
+                    @endif
+
+                    {{ $draftCheck['message'] }}
+                </p>
+            @endif
+
             <div class="flex gap-2 pt-2">
                 <flux:button variant="primary" type="submit" data-test="save-provider-button">
                     {{ $editingAccountId === null ? __('Connect account') : __('Save credentials') }}
+                </flux:button>
+
+                {{-- Probes the entered credentials through the same
+                     adapter check a saved account takes, without
+                     storing them first. --}}
+                <flux:button type="button" wire:click="testCredentials" data-test="test-draft-button">
+                    {{ __('Test credentials') }}
                 </flux:button>
 
                 <flux:button type="button" wire:click="cancelPanel">{{ __('Cancel') }}</flux:button>
@@ -844,6 +928,33 @@ new #[Title('Providers')] class extends Component {
             <p class="mt-2">
                 {{ __($this->activeSchema::help()) }}
             </p>
+
+            {{-- The provider's setup guide, when its credentials take
+                 more than "create a token": ordered steps with the
+                 technical detail set off in monospace. --}}
+            @if ($this->activeSchema::helpSteps() !== [])
+                <ol class="mt-4 list-decimal space-y-3 pl-5" data-test="provider-help-steps">
+                    @foreach ($this->activeSchema::helpSteps() as $step)
+                        <li wire:key="help-step-{{ $loop->index }}">
+                            <span>{{ __($step->body) }}</span>
+
+                            @if ($step->lines !== [])
+                                <div class="mt-1.5 space-y-1 rounded-control border border-line bg-surface p-2.5 font-mono text-xs leading-relaxed text-ink-secondary">
+                                    @foreach ($step->lines as $line)
+                                        <p class="break-all">{{ $line }}</p>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            @if ($step->url !== null)
+                                <a href="{{ $step->url }}" target="_blank" rel="noopener noreferrer" class="mt-1.5 inline-block font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-line-strong">
+                                    {{ __($step->urlLabel ?? 'Read more') }}
+                                </a>
+                            @endif
+                        </li>
+                    @endforeach
+                </ol>
+            @endif
 
             @if ($this->activeSchema::helpUrl() !== null)
                 <p class="mt-2">
