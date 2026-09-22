@@ -20,6 +20,7 @@ use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Enums\ProviderCapability;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
 use App\Domain\Providers\Exceptions\ProviderException;
+use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Support\ValueObjects\Money;
 
 final class OpenRouterProviderAdapter implements ProviderAdapter
@@ -54,7 +55,7 @@ final class OpenRouterProviderAdapter implements ProviderAdapter
             $keyResponse = $api->get('/auth/key');
             $data = is_array($keyResponse['data'] ?? null) ? $keyResponse['data'] : [];
             $label = is_string($data['label'] ?? null) && $data['label'] !== '' ? $data['label'] : 'Default Key';
-        } catch (InvalidCredentialsException $exception) {
+        } catch (InvalidCredentialsException|TransientProviderException $exception) {
             throw $exception;
         } catch (ProviderException $exception) {
             $warnings[] = "OpenRouter key discovery failed: {$exception->getMessage()}";
@@ -94,7 +95,7 @@ final class OpenRouterProviderAdapter implements ProviderAdapter
             if (isset($creditsData['total_usage']) && is_numeric($creditsData['total_usage'])) {
                 $usageMinor = $this->toMinor((string) $creditsData['total_usage']);
             }
-        } catch (InvalidCredentialsException $exception) {
+        } catch (InvalidCredentialsException|TransientProviderException $exception) {
             throw $exception;
         } catch (ProviderException $exception) {
             $warnings[] = "OpenRouter credits fetching failed: {$exception->getMessage()}";
@@ -109,30 +110,34 @@ final class OpenRouterProviderAdapter implements ProviderAdapter
                 if (isset($keyData['usage']) && is_numeric($keyData['usage'])) {
                     $usageMinor = $this->toMinor((string) $keyData['usage']);
                 }
-            } catch (InvalidCredentialsException $exception) {
+            } catch (InvalidCredentialsException|TransientProviderException $exception) {
                 throw $exception;
             } catch (ProviderException $exception) {
                 $warnings[] = "OpenRouter key usage fallback failed: {$exception->getMessage()}";
             }
         }
 
-        $amount = $usageMinor !== null ? Money::ofMinor($usageMinor, $currency) : null;
+        if ($usageMinor !== null) {
+            $amount = Money::ofMinor($usageMinor, $currency);
 
-        $facts[] = new CostFact(
-            sourceRef: 'openrouter:usage:key',
-            serviceExternalIds: ['openrouter:key'],
-            sourceKind: SourceKind::Usage,
-            chargeKind: ChargeKind::Usage,
-            period: Period::Unknown,
-            evidenceState: EvidenceState::Actual,
-            amount: $amount,
-            validFrom: $context->now->startOfMonth(),
-            taxBasis: TaxBasis::Unknown,
-            renewsAt: null,
-            autoRenew: false,
-            allocationState: AllocationState::Direct,
-            notes: 'OpenRouter AI model usage',
-        );
+            $facts[] = new CostFact(
+                sourceRef: 'openrouter:usage:key',
+                serviceExternalIds: ['openrouter:key'],
+                sourceKind: SourceKind::Usage,
+                chargeKind: ChargeKind::Usage,
+                period: Period::Unknown,
+                evidenceState: EvidenceState::Actual,
+                amount: $amount,
+                validFrom: $context->now->startOfMonth(),
+                taxBasis: TaxBasis::Unknown,
+                renewsAt: null,
+                autoRenew: false,
+                allocationState: AllocationState::Direct,
+                notes: 'OpenRouter AI model cumulative usage',
+            );
+        } else {
+            $warnings[] = 'OpenRouter usage data was unavailable; charge left unknown.';
+        }
 
         $completeness = $warnings === [] ? BatchCompleteness::Complete : BatchCompleteness::Partial;
 

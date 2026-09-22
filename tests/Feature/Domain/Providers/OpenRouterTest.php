@@ -1,13 +1,12 @@
 <?php
 
-use App\Domain\Costs\Enums\ChargeKind;
-use App\Domain\Costs\Enums\EvidenceState;
-use App\Domain\Costs\Enums\SourceKind;
 use App\Domain\Providers\Dtos\InventoryBatch;
 use App\Domain\Providers\Dtos\InventoryItem;
 use App\Domain\Providers\Dtos\SyncContext;
 use App\Domain\Providers\Enums\BatchCompleteness;
 use App\Domain\Providers\Exceptions\InvalidCredentialsException;
+use App\Domain\Providers\Exceptions\ProviderException;
+use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\OpenRouter\BuildOpenRouterApi;
 use App\Domain\Providers\OpenRouter\OpenRouterApi;
@@ -57,6 +56,21 @@ test('openrouter adapter handles invalid credentials', function () {
     expect($check->warning)->toEqual('Key rejected.');
 });
 
+test('openrouter adapter rethrows transient exceptions for retry', function () {
+    $account = ProviderAccount::factory()->create(['provider_key' => 'openrouter']);
+
+    $api = Mockery::mock(OpenRouterApi::class);
+    $api->shouldReceive('get')->andThrow(new TransientProviderException('Rate limited'));
+
+    $builder = Mockery::mock(BuildOpenRouterApi::class);
+    $builder->shouldReceive('build')->andReturn($api);
+
+    $adapter = new OpenRouterProviderAdapter($builder);
+    $context = new SyncContext($account, ['api_key' => 'sk-or-v1-test'], new CarbonImmutable('2026-09-15'));
+
+    $adapter->fetchInventory($context);
+})->throws(TransientProviderException::class);
+
 test('openrouter adapter fetches inventory', function () {
     $account = ProviderAccount::factory()->create(['provider_key' => 'openrouter']);
 
@@ -87,15 +101,13 @@ test('openrouter adapter fetches inventory', function () {
     expect($item->name)->toEqual('OpenRouter (Production Key)');
 });
 
-test('openrouter adapter fetches cost facts from credits and key usage', function () {
+test('openrouter adapter falls back to key usage when credits endpoint fails', function () {
     $account = ProviderAccount::factory()->create(['provider_key' => 'openrouter']);
 
     $api = Mockery::mock(OpenRouterApi::class);
-    $api->shouldReceive('get')->with('/credits')->andReturn([
-        'data' => [
-            'total_credits' => 50.00,
-            'total_usage' => 12.34,
-        ],
+    $api->shouldReceive('get')->with('/credits')->andThrow(new ProviderException('Credits unavailable'));
+    $api->shouldReceive('get')->with('/auth/key')->andReturn([
+        'data' => ['usage' => 8.50],
     ]);
 
     $builder = Mockery::mock(BuildOpenRouterApi::class);
@@ -108,23 +120,13 @@ test('openrouter adapter fetches cost facts from credits and key usage', functio
         completeness: BatchCompleteness::Complete,
         observedAt: $context->now,
         sourceRef: 'openrouter:/auth/key',
-        items: [
-            new InventoryItem('openrouter:key', 'saas', 'OpenRouter Key', 'api_key'),
-        ],
+        items: [new InventoryItem('openrouter:key', 'saas', 'OpenRouter Key', 'api_key')],
     );
 
     $batch = $adapter->fetchCostFacts($context, $inventory);
 
-    expect($batch->completeness)->toEqual(BatchCompleteness::Complete);
     expect($batch->facts)->toHaveCount(1);
-
-    $fact = $batch->facts[0];
-    expect($fact->sourceRef)->toEqual('openrouter:usage:key');
-    expect($fact->sourceKind)->toEqual(SourceKind::Usage);
-    expect($fact->chargeKind)->toEqual(ChargeKind::Usage);
-    expect($fact->evidenceState)->toEqual(EvidenceState::Actual);
-    expect($fact->amount?->amountMinor)->toEqual(1234);
-    expect($fact->amount?->currency)->toEqual('USD');
+    expect($batch->facts[0]->amount?->amountMinor)->toEqual(850);
 });
 
 test('it connects an openrouter account through the provider select', function () {

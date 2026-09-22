@@ -325,7 +325,7 @@ final class AiSubscriptionPresets
                 'currency' => (string) ($preset['currency'] ?? 'USD'),
                 'period' => (string) ($preset['period'] ?? 'monthly'),
                 'auto_renew' => (bool) ($preset['auto_renew'] ?? true),
-                'url' => (string) ($preset['url'] ?? ''),
+                'url' => self::sanitizeUrl((string) ($preset['url'] ?? '')),
             ];
         }
 
@@ -338,5 +338,16 @@ final class AiSubscriptionPresets
     public static function clearCache(): void
     {
         Cache::forget(self::CACHE_KEY);
+    }
+
+    private static function sanitizeUrl(string $url): string
+    {
+        $trimmed = trim($url);
+
+        if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+            return $trimmed;
+        }
+
+        return '';
     }
 }
