@@ -29,6 +29,9 @@ final class OpenRouterCredentialSchema implements CredentialSchema
         return 'https://openrouter.ai/settings/keys';
     }
 
+    /**
+     * @return list<\App\Domain\Providers\Dtos\CredentialHelpStep>
+     */
     public static function helpSteps(): array
     {
         return [];
