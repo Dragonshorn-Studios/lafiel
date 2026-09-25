@@ -23,9 +23,11 @@ return new class extends Migration
         // to widen this list. The constraint is unnamed: it cannot be
         // dropped by name on sqlite, and dropping the column below
         // removes it on both engines anyway.
-        DB::statement(
-            "ALTER TABLE sync_runs ADD CHECK (stage IS NULL OR stage IN ('credentials', 'inventory', 'costs', 'persisting'))"
-        );
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement(
+                "ALTER TABLE sync_runs ADD CHECK (stage IS NULL OR stage IN ('credentials', 'inventory', 'costs', 'persisting'))"
+            );
+        }
     }
 
     /**

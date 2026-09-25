@@ -35,4 +35,6 @@ return [
         ],
     ],
 
+    'ai_presets_url' => env('AI_PRESETS_URL'),
+
 ];
