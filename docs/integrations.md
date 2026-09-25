@@ -70,7 +70,7 @@ Treating `/renew` as the price (or treating `/services` as an object listing wit
 
 ### Credentials
 
-Use the smallest read-only rights, provide a connection test, encrypt at rest, and redact logs. No OVH mutating endpoint belongs in Lafiel, and the adapter client can only express GET. Minimum delegated rights — GET on:
+Use the smallest read-only rights, provide a connection test, encrypt at rest, and redact logs. No OVH mutating endpoint belongs in Lafiel, and the adapter client can only express GET. The provider form walks the user through the full credential setup — application creation on the region's console (`{host}/createApp/`), the all-in-one `{host}/createToken/` flow or a programmatic `POST /1.0/auth/credential`, approving the returned `validationUrl`, and a test-before-save probe (`OvhCredentialSchema::helpSteps()`). Minimum delegated rights — GET on:
 
 - `/me` (identity: subsidiary, currency, connection test);
 - `/services` and `/services/*` (inventory and contracted billing);

@@ -34,6 +34,11 @@ final class CloudflareCredentialSchema implements CredentialSchema
         return 'https://developers.cloudflare.com/fundamentals/api/get-started/create-token/';
     }
 
+    public static function helpSteps(): array
+    {
+        return [];
+    }
+
     public static function summary(array $payload): string
     {
         return 'API token';
