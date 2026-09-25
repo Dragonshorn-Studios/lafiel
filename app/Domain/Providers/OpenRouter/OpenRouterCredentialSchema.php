@@ -4,6 +4,7 @@ namespace App\Domain\Providers\OpenRouter;
 
 use App\Domain\Providers\CredentialSchema;
 use App\Domain\Providers\Dtos\CredentialField;
+use App\Domain\Providers\Dtos\CredentialHelpStep;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -29,6 +30,9 @@ final class OpenRouterCredentialSchema implements CredentialSchema
         return 'https://openrouter.ai/settings/keys';
     }
 
+    /**
+     * @return list<CredentialHelpStep>
+     */
     public static function helpSteps(): array
     {
         return [];
