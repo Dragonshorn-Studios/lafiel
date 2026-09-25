@@ -29,6 +29,11 @@ final class OpenRouterCredentialSchema implements CredentialSchema
         return 'https://openrouter.ai/settings/keys';
     }
 
+    public static function helpSteps(): array
+    {
+        return [];
+    }
+
     public static function summary(array $payload): string
     {
         return 'API key';
