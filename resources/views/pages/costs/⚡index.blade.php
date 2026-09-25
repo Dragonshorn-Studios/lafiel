@@ -13,6 +13,8 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Services')] class extends Component {
+    public bool $hideZeroCost = true;
+
     public string $vendor = '';
 
     public string $name = '';
@@ -79,7 +81,13 @@ new #[Title('Services')] class extends Component {
     #[Computed]
     public function rows(): array
     {
-        return app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
+        $rows = app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
+
+        if ($this->hideZeroCost) {
+            return array_values(array_filter($rows, fn ($row) => $row->monthlyMinor !== 0));
+        }
+
+        return $rows;
     }
 
     #[Computed]
@@ -227,9 +235,13 @@ new #[Title('Services')] class extends Component {
     <div class="flex flex-wrap items-center justify-between gap-3">
         <flux:heading size="h1">{{ __('Services') }}</flux:heading>
 
-        <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
-            {{ __('Add cost') }}
-        </flux:button>
+        <div class="flex items-center gap-4">
+            <flux:checkbox wire:model.live="hideZeroCost" :label="__('Hide $0 items')" data-test="hide-zero-cost-toggle" />
+
+            <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
+                {{ __('Add cost') }}
+            </flux:button>
+        </div>
     </div>
 
     @if ($this->rows === [])
