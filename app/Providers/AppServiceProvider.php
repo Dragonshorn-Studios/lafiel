@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Actions\Setup\Commands\ResetAdministratorPasswordCommand;
 use App\Domain\Ops\Commands\HeartbeatCommand;
 use App\Domain\Ops\Commands\OpsCommand;
 use App\Domain\Providers\AdapterRegistry;
@@ -70,6 +71,7 @@ class AppServiceProvider extends ServiceProvider
             $this->commands([
                 HeartbeatCommand::class,
                 OpsCommand::class,
+                ResetAdministratorPasswordCommand::class,
             ]);
         }
     }

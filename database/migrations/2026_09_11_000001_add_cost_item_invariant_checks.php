@@ -7,10 +7,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (DB::getDriverName() === 'sqlite') {
-            DB::statement("CREATE TRIGGER check_cost_items_manual_override BEFORE INSERT ON cost_items WHEN NEW.is_manual_override AND NEW.source_kind != 'manual' BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_known_amount BEFORE INSERT ON cost_items WHEN NEW.amount_state != 'unknown' AND (NEW.amount_minor IS NULL OR NEW.currency IS NULL) BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-        } else {
+        if (DB::getDriverName() !== 'sqlite') {
             // A conscious manual override is only meaningful on manual
             // evidence; a known amount always carries its minor units and
             // currency. Both invariants are database-owned like the enum
@@ -22,6 +19,19 @@ return new class extends Migration
             DB::statement(
                 'ALTER TABLE cost_items ADD CHECK (amount_state = \'unknown\' OR (amount_minor IS NOT NULL AND currency IS NOT NULL))'
             );
+        } else {
+            $whenClause = "(NEW.is_manual_override AND NEW.source_kind != 'manual') OR (NEW.amount_state != 'unknown' AND (NEW.amount_minor IS NULL OR NEW.currency IS NULL))";
+
+            DB::statement("
+                CREATE TRIGGER check_cost_items_invariants_insert BEFORE INSERT ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_cost_items_invariants_update BEFORE UPDATE ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
         }
     }
 

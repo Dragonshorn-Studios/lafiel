@@ -60,18 +60,32 @@ return new class extends Migration
             "allocation_state IN ('direct', 'shared_unallocated', 'allocated')",
         ];
 
-        if (DB::getDriverName() === 'sqlite') {
-            DB::statement("CREATE TRIGGER check_cost_items_source_kind BEFORE INSERT ON cost_items WHEN NEW.source_kind NOT IN ('subscription', 'renewal_quote', 'usage', 'invoice', 'manual') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_charge_kind BEFORE INSERT ON cost_items WHEN NEW.charge_kind NOT IN ('recurring_fixed', 'usage', 'one_time') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_period BEFORE INSERT ON cost_items WHEN NEW.period NOT IN ('monthly', 'quarterly', 'annual', 'one_time', 'unknown') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_amount_state BEFORE INSERT ON cost_items WHEN NEW.amount_state NOT IN ('known', 'unknown') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_evidence_state BEFORE INSERT ON cost_items WHEN NEW.evidence_state NOT IN ('actual', 'estimate', 'quote', 'manual') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_tax_basis BEFORE INSERT ON cost_items WHEN NEW.tax_basis NOT IN ('inclusive', 'exclusive', 'unknown') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-            DB::statement("CREATE TRIGGER check_cost_items_allocation_state BEFORE INSERT ON cost_items WHEN NEW.allocation_state NOT IN ('direct', 'shared_unallocated', 'allocated') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;");
-        } else {
+        if (DB::getDriverName() !== 'sqlite') {
             foreach ($checks as $check) {
                 DB::statement("ALTER TABLE cost_items ADD CHECK ({$check})");
             }
+        } else {
+            $conditions = [
+                "NEW.source_kind NOT IN ('subscription', 'renewal_quote', 'usage', 'invoice', 'manual')",
+                "NEW.charge_kind NOT IN ('recurring_fixed', 'usage', 'one_time')",
+                "NEW.period NOT IN ('monthly', 'quarterly', 'annual', 'one_time', 'unknown')",
+                "NEW.amount_state NOT IN ('known', 'unknown')",
+                "NEW.evidence_state NOT IN ('actual', 'estimate', 'quote', 'manual')",
+                "NEW.tax_basis NOT IN ('inclusive', 'exclusive', 'unknown')",
+                "NEW.allocation_state NOT IN ('direct', 'shared_unallocated', 'allocated')",
+            ];
+            $whenClause = implode(' OR ', $conditions);
+
+            DB::statement("
+                CREATE TRIGGER check_cost_items_enums_insert BEFORE INSERT ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_cost_items_enums_update BEFORE UPDATE ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
         }
     }
 };

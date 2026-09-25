@@ -22,14 +22,21 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        if (DB::getDriverName() === 'sqlite') {
-            DB::statement(
-                "CREATE TRIGGER check_sync_runs_status BEFORE INSERT ON sync_runs WHEN NEW.status NOT IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled') BEGIN SELECT RAISE(FAIL, 'CHECK constraint failed'); END;"
-            );
-        } else {
+        if (DB::getDriverName() !== 'sqlite') {
             DB::statement(
                 "ALTER TABLE sync_runs ADD CHECK (status IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled'))"
             );
+        } else {
+            DB::statement("
+                CREATE TRIGGER check_sync_runs_status_insert BEFORE INSERT ON sync_runs
+                WHEN NEW.status NOT IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled')
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_sync_runs_status_update BEFORE UPDATE ON sync_runs
+                WHEN NEW.status NOT IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled')
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
         }
     }
 

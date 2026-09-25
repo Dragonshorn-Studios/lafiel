@@ -27,6 +27,17 @@ return new class extends Migration
             DB::statement(
                 "ALTER TABLE sync_runs ADD CHECK (stage IS NULL OR stage IN ('credentials', 'inventory', 'costs', 'persisting'))"
             );
+        } else {
+            DB::statement("
+                CREATE TRIGGER check_sync_runs_stage_insert BEFORE INSERT ON sync_runs
+                WHEN NEW.stage IS NOT NULL AND NEW.stage NOT IN ('credentials', 'inventory', 'costs', 'persisting')
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_sync_runs_stage_update BEFORE UPDATE ON sync_runs
+                WHEN NEW.stage IS NOT NULL AND NEW.stage NOT IN ('credentials', 'inventory', 'costs', 'persisting')
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
         }
     }
 
