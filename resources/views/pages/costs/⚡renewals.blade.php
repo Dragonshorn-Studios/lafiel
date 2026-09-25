@@ -7,20 +7,33 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Renewals')] class extends Component {
+    public bool $hideZeroCost = true;
+
     #[Computed]
     public function renewals(): \Illuminate\Support\Collection
     {
-        return Renewal::query()
-            ->whereHas('costItem', fn ($query) => $query
+        $query = Renewal::query()
+            ->whereHas('costItem', fn ($q) => $q
                 ->whereNull('valid_to')
                 ->orWhereDate('valid_to', '>=', today()))
             ->with(['costItem.services.providerAccount'])
-            ->orderBy('renews_at')
-            ->get();
+            ->orderBy('renews_at');
+
+        if ($this->hideZeroCost) {
+            $query->whereHas('costItem', fn ($q) => $q
+                ->where('amount_minor', '>', 0)
+                ->orWhereNull('amount_minor'));
+        }
+
+        return $query->get();
     }
 }; ?>
 <section class="w-full space-y-6">
-    <flux:heading size="h1">{{ __('Renewals') }}</flux:heading>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <flux:heading size="h1">{{ __('Renewals') }}</flux:heading>
+
+        <flux:checkbox wire:model.live="hideZeroCost" :label="__('Hide $0 items')" data-test="hide-zero-cost-toggle" />
+    </div>
 
     @if ($this->renewals->isEmpty())
         <x-imperial.empty-state :hint="__('Charges with a renewal date will appear here.')"/>

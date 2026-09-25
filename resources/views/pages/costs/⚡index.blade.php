@@ -3,16 +3,21 @@
 use App\Domain\Costs\Actions\CreateManualCost;
 use App\Domain\Costs\Actions\EndManualCost;
 use App\Domain\Costs\Actions\UpdateManualCost;
+use App\Domain\Costs\AiSubscriptionPresets;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
-use Flux\Flux;
 use App\Domain\Inventory\Models\Service;
 use Carbon\CarbonImmutable;
+use Flux\Flux;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Services')] class extends Component {
+    public bool $hideZeroCost = true;
+
+    public ?string $aiPresetKey = null;
+
     public string $vendor = '';
 
     public string $name = '';
@@ -79,7 +84,13 @@ new #[Title('Services')] class extends Component {
     #[Computed]
     public function rows(): array
     {
-        return app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
+        $rows = app(\App\Domain\Inventory\ServiceLedger::class)->rows(now());
+
+        if ($this->hideZeroCost) {
+            return array_values(array_filter($rows, fn ($row) => $row->monthlyMinor !== 0));
+        }
+
+        return $rows;
     }
 
     #[Computed]
@@ -180,9 +191,32 @@ new #[Title('Services')] class extends Component {
         $this->resetForm();
     }
 
+    public function updatedAiPresetKey(?string $key): void
+    {
+        if (blank($key)) {
+            return;
+        }
+
+        $preset = AiSubscriptionPresets::find($key);
+
+        if ($preset === null) {
+            return;
+        }
+
+        $this->vendor = $preset['vendor'];
+        $this->name = $preset['name'];
+        $this->category = $preset['category'];
+        $this->amount = $preset['amount'];
+        $this->currency = $preset['currency'];
+        $this->period = $preset['period'];
+        $this->autoRenew = $preset['auto_renew'];
+        $this->url = $preset['url'];
+        $this->unknownAmount = false;
+    }
+
     public function resetForm(): void
     {
-        $this->reset('vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingCostItemId');
+        $this->reset('aiPresetKey', 'vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingCostItemId');
         $this->validFrom = now()->format('Y-m-d');
         $this->currency = 'PLN';
         $this->period = 'monthly';
@@ -227,9 +261,13 @@ new #[Title('Services')] class extends Component {
     <div class="flex flex-wrap items-center justify-between gap-3">
         <flux:heading size="h1">{{ __('Services') }}</flux:heading>
 
-        <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
-            {{ __('Add cost') }}
-        </flux:button>
+        <div class="flex items-center gap-4">
+            <flux:checkbox wire:model.live="hideZeroCost" :label="__('Hide $0 items')" data-test="hide-zero-cost-toggle" />
+
+            <flux:button variant="primary" icon="plus" wire:click="add" data-test="add-cost-button">
+                {{ __('Add cost') }}
+            </flux:button>
+        </div>
     </div>
 
     @if ($this->rows === [])
@@ -341,6 +379,20 @@ new #[Title('Services')] class extends Component {
         </flux:heading>
 
         <form wire:submit="save" class="space-y-4">
+            @if ($editingCostItemId === null)
+                <div>
+                    <flux:select wire:model.live="aiPresetKey" :label="__('AI Subscription Preset (optional)')">
+                        <flux:select.option :value="null">{{ __('— None (enter custom details) —') }}</flux:select.option>
+                        @foreach (\App\Domain\Costs\AiSubscriptionPresets::options() as $key => $label)
+                            <flux:select.option :value="$key">{{ $label }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                    <p class="mt-1 text-xs text-ink-muted">
+                        {{ __('Selecting a preset auto-populates provider, name, category, amount, currency, and renewal settings.') }}
+                    </p>
+                </div>
+            @endif
+
             <div class="grid gap-4 sm:grid-cols-2">
                 <flux:input wire:model="vendor" :label="__('Vendor')" />
                 <flux:input wire:model="name" :label="__('Service name')" required />

@@ -85,6 +85,51 @@ test('provider cards show health per capability', function () {
         ->assertSee('capability-health', false);
 });
 
+test('the services view filters zero cost items by default and toggles them', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $vps = Service::factory()->discovered($account)->create(['name' => 'vps-main']);
+    $ip = Service::factory()->discovered($account)->create(['name' => 'vps-ip-free']);
+
+    $priced = CostItem::factory()->create(['amount_minor' => 1500, 'currency' => 'EUR', 'observed_at' => now()]);
+    $priced->services()->attach($vps->id);
+
+    $free = CostItem::factory()->create(['amount_minor' => 0, 'currency' => 'EUR', 'observed_at' => now()]);
+    $free->services()->attach($ip->id);
+
+    // Default: hideZeroCost is true -> free IP service is hidden, paid VPS is visible.
+    // Asserted on the rows computed, not the page HTML: the "cover an existing
+    // service" dropdown in the cost-form flyout lists every discovered service.
+    $component = Livewire::test('pages::costs.index');
+    $visible = fn () => collect($component->instance()->rows)->map(fn ($row) => $row->service->name)->all();
+
+    expect($visible())->toContain('vps-main')->not->toContain('vps-ip-free');
+
+    $component->set('hideZeroCost', false);
+
+    expect($visible())->toContain('vps-main', 'vps-ip-free');
+});
+
+test('the renewals view filters zero cost items by default and toggles them', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $vps = Service::factory()->discovered($account)->create(['name' => 'vps-main']);
+    $ip = Service::factory()->discovered($account)->create(['name' => 'vps-ip-free']);
+
+    $priced = CostItem::factory()->create(['amount_minor' => 1500, 'currency' => 'EUR', 'observed_at' => now()]);
+    $priced->services()->attach($vps->id);
+    Renewal::query()->create(['cost_item_id' => $priced->id, 'renews_at' => now()->addDays(5), 'auto_renew' => true]);
+
+    $free = CostItem::factory()->create(['amount_minor' => 0, 'currency' => 'EUR', 'observed_at' => now()]);
+    $free->services()->attach($ip->id);
+    Renewal::query()->create(['cost_item_id' => $free->id, 'renews_at' => now()->addDays(5), 'auto_renew' => true]);
+
+    Livewire::test('pages::costs.renewals')
+        ->assertSee('vps-main')
+        ->assertDontSee('vps-ip-free')
+        ->set('hideZeroCost', false)
+        ->assertSee('vps-main')
+        ->assertSee('vps-ip-free');
+});
+
 test('the renewals view lists provider and source amount', function () {
     $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
     $service = Service::factory()->discovered($account)->create(['name' => 'vps-atlas-01']);

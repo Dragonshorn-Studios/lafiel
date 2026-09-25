@@ -33,6 +33,18 @@ class TestProviderConnection
             return ConnectionCheck::rejected(__('Stored credentials are unreadable. Replace them and test again.'));
         }
 
+        return $this->checkPayload($account, $payload);
+    }
+
+    /**
+     * Probe a payload that may not be stored yet — the form's
+     * test-before-save path runs the same adapter check. The account
+     * may be a transient model: adapters only read the credentials.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function checkPayload(ProviderAccount $account, array $payload): ConnectionCheck
+    {
         $context = new SyncContext($account, $payload, now());
 
         try {

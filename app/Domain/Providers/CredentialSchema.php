@@ -3,6 +3,7 @@
 namespace App\Domain\Providers;
 
 use App\Domain\Providers\Dtos\CredentialField;
+use App\Domain\Providers\Dtos\CredentialHelpStep;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -31,6 +32,15 @@ interface CredentialSchema
      * Optional documentation URL behind the help text.
      */
     public static function helpUrl(): ?string;
+
+    /**
+     * Ordered setup steps rendered under the help text — for providers
+     * whose credentials take more than "create a token". An empty list
+     * renders the help text alone.
+     *
+     * @return list<CredentialHelpStep>
+     */
+    public static function helpSteps(): array;
 
     /**
      * Non-secret one-line summary of a stored payload for the account

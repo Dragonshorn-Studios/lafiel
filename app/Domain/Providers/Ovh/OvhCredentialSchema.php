@@ -4,6 +4,7 @@ namespace App\Domain\Providers\Ovh;
 
 use App\Domain\Providers\CredentialSchema;
 use App\Domain\Providers\Dtos\CredentialField;
+use App\Domain\Providers\Dtos\CredentialHelpStep;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -31,6 +32,23 @@ final class OvhCredentialSchema implements CredentialSchema
         'soyoustart-ca',
     ];
 
+    /**
+     * Display label and API host per endpoint. The host also builds the
+     * credential-creation URLs shown in the setup guide
+     * (`{host}/createApp/`, `{host}/createToken/`).
+     *
+     * @var array<string, array{label: string, host: string}>
+     */
+    public const ENDPOINT_INFO = [
+        'ovh-eu' => ['label' => 'OVHcloud Europe', 'host' => 'eu.api.ovh.com'],
+        'ovh-ca' => ['label' => 'OVHcloud Canada', 'host' => 'ca.api.ovh.com'],
+        'ovh-us' => ['label' => 'OVHcloud US', 'host' => 'api.us.ovhcloud.com'],
+        'kimsufi-eu' => ['label' => 'Kimsufi Europe', 'host' => 'eu.api.kimsufi.com'],
+        'kimsufi-ca' => ['label' => 'Kimsufi Canada', 'host' => 'ca.api.kimsufi.com'],
+        'soyoustart-eu' => ['label' => 'So you Start Europe', 'host' => 'eu.api.soyoustart.com'],
+        'soyoustart-ca' => ['label' => 'So you Start Canada', 'host' => 'ca.api.soyoustart.com'],
+    ];
+
     public static function label(): string
     {
         return 'OVHcloud';
@@ -38,7 +56,7 @@ final class OvhCredentialSchema implements CredentialSchema
 
     public static function help(): string
     {
-        return 'Create an OVHcloud API application, then delegate the smallest read-only rights — GET on: /me (identity and connection test), /services and /services/* (inventory and contracted billing), /service/* (solo /renew fallback), /order/catalog/formatted/* (last-resort fallback pricing), and /me/bill* (invoice history, once billing sync ships). Lafiel never calls a mutating OVH endpoint — no create, renew, scale, or delete.';
+        return 'Lafiel needs three OVHcloud API credentials. The Application key (AK) and Application secret (AS) identify your application; the Consumer key (CK) delegates your account\'s rights to it. All three come from the same OVHcloud region — credentials only work on the platform that issued them.';
     }
 
     public static function helpUrl(): string
@@ -46,9 +64,54 @@ final class OvhCredentialSchema implements CredentialSchema
         return 'https://help.ovhcloud.com/csm/de-api-api-rights-delegation?id=kb_article_view&sysparm_article=KB0068603';
     }
 
+    /**
+     * @return list<CredentialHelpStep>
+     */
+    public static function helpSteps(): array
+    {
+        return [
+            new CredentialHelpStep(
+                'Pick your account\'s region above, then create an application in its API console — it issues the Application key and Application secret:',
+                lines: array_map(
+                    fn (string $endpoint, array $info): string => $info['label'].' ('.$endpoint.') — https://'.$info['host'].'/createApp/',
+                    array_keys(self::ENDPOINT_INFO),
+                    self::ENDPOINT_INFO,
+                ),
+            ),
+            new CredentialHelpStep(
+                'Generate the Consumer key, which delegates rights to the application. The console\'s createToken/ page on the same host (for example https://eu.api.ovh.com/createToken/) issues all three keys in one pass; for an existing application, request one programmatically:',
+                lines: [
+                    'POST https://eu.api.ovh.com/1.0/auth/credential',
+                    'Header: X-Ovh-Application: <application key>',
+                    'Body: {"accessRules": [{"method": "GET", "path": "/me"}, …]} — one rule per GET right below',
+                ],
+            ),
+            new CredentialHelpStep(
+                'The request answers with a consumerKey and a validationUrl. Open the validationUrl while signed into OVHcloud and approve it — the key stays pendingValidation until then.',
+            ),
+            new CredentialHelpStep(
+                'Delegate only read-only rights — GET on:',
+                lines: [
+                    '/me — identity and the connection test',
+                    '/services and /services/* — inventory and contracted billing',
+                    '/service/* — renewal fallback',
+                    '/order/catalog/formatted/* — last-resort fallback pricing',
+                    '/me/bill* — invoice history',
+                ],
+            ),
+            new CredentialHelpStep(
+                'Paste the three keys here and use Test credentials before saving — it runs the same /me probe a saved account would.',
+            ),
+        ];
+    }
+
     public static function summary(array $payload): string
     {
-        return (string) ($payload['endpoint'] ?? '—');
+        $endpoint = (string) ($payload['endpoint'] ?? '');
+
+        return isset(self::ENDPOINT_INFO[$endpoint])
+            ? self::ENDPOINT_INFO[$endpoint]['label'].' ('.$endpoint.')'
+            : ($endpoint !== '' ? $endpoint : '—');
     }
 
     /**
@@ -57,7 +120,7 @@ final class OvhCredentialSchema implements CredentialSchema
     public static function fields(): array
     {
         return [
-            new CredentialField('endpoint', 'Endpoint', CredentialField::TYPE_SELECT, options: self::ENDPOINTS),
+            new CredentialField('endpoint', 'Endpoint', CredentialField::TYPE_SELECT, options: self::endpointOptions(), placeholder: 'Choose the OVHcloud region…'),
             new CredentialField('application_key', 'Application key'),
             new CredentialField('application_secret', 'Application secret', CredentialField::TYPE_PASSWORD),
             new CredentialField('consumer_key', 'Consumer key', CredentialField::TYPE_PASSWORD),
@@ -104,5 +167,22 @@ final class OvhCredentialSchema implements CredentialSchema
     public static function assertValid(array $payload): void
     {
         Validator::make($payload, self::rules())->validate();
+    }
+
+    /**
+     * Select choices as endpoint => "Label (endpoint)" — the stored
+     * value stays the raw endpoint key the OVH SDK expects.
+     *
+     * @return array<string, string>
+     */
+    private static function endpointOptions(): array
+    {
+        $options = [];
+
+        foreach (self::ENDPOINTS as $endpoint) {
+            $options[$endpoint] = self::ENDPOINT_INFO[$endpoint]['label'].' ('.$endpoint.')';
+        }
+
+        return $options;
     }
 }

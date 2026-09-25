@@ -33,6 +33,11 @@ final class HetznerCloudCredentialSchema implements CredentialSchema
         return 'https://docs.hetzner.cloud/reference/cloud';
     }
 
+    public static function helpSteps(): array
+    {
+        return [];
+    }
+
     public static function summary(array $payload): string
     {
         return 'API token';
