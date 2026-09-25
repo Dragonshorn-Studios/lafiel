@@ -96,13 +96,17 @@ test('the services view filters zero cost items by default and toggles them', fu
     $free = CostItem::factory()->create(['amount_minor' => 0, 'currency' => 'EUR', 'observed_at' => now()]);
     $free->services()->attach($ip->id);
 
-    // Default: hideZeroCost is true -> free IP service is hidden, paid VPS is visible
-    Livewire::test('pages.costs.index')
-        ->assertSee('vps-main')
-        ->assertDontSee('vps-ip-free')
-        ->set('hideZeroCost', false)
-        ->assertSee('vps-main')
-        ->assertSee('vps-ip-free');
+    // Default: hideZeroCost is true -> free IP service is hidden, paid VPS is visible.
+    // Asserted on the rows computed, not the page HTML: the "cover an existing
+    // service" dropdown in the cost-form flyout lists every discovered service.
+    $component = Livewire::test('pages::costs.index');
+    $visible = fn () => collect($component->instance()->rows)->map(fn ($row) => $row->service->name)->all();
+
+    expect($visible())->toContain('vps-main')->not->toContain('vps-ip-free');
+
+    $component->set('hideZeroCost', false);
+
+    expect($visible())->toContain('vps-main', 'vps-ip-free');
 });
 
 test('the renewals view filters zero cost items by default and toggles them', function () {
@@ -118,7 +122,7 @@ test('the renewals view filters zero cost items by default and toggles them', fu
     $free->services()->attach($ip->id);
     Renewal::query()->create(['cost_item_id' => $free->id, 'renews_at' => now()->addDays(5), 'auto_renew' => true]);
 
-    Livewire::test('pages.costs.renewals')
+    Livewire::test('pages::costs.renewals')
         ->assertSee('vps-main')
         ->assertDontSee('vps-ip-free')
         ->set('hideZeroCost', false)
