@@ -60,8 +60,32 @@ return new class extends Migration
             "allocation_state IN ('direct', 'shared_unallocated', 'allocated')",
         ];
 
-        foreach ($checks as $check) {
-            DB::statement("ALTER TABLE cost_items ADD CHECK ({$check})");
+        if (DB::getDriverName() !== 'sqlite') {
+            foreach ($checks as $check) {
+                DB::statement("ALTER TABLE cost_items ADD CHECK ({$check})");
+            }
+        } else {
+            $conditions = [
+                "NEW.source_kind NOT IN ('subscription', 'renewal_quote', 'usage', 'invoice', 'manual')",
+                "NEW.charge_kind NOT IN ('recurring_fixed', 'usage', 'one_time')",
+                "NEW.period NOT IN ('monthly', 'quarterly', 'annual', 'one_time', 'unknown')",
+                "NEW.amount_state NOT IN ('known', 'unknown')",
+                "NEW.evidence_state NOT IN ('actual', 'estimate', 'quote', 'manual')",
+                "NEW.tax_basis NOT IN ('inclusive', 'exclusive', 'unknown')",
+                "NEW.allocation_state NOT IN ('direct', 'shared_unallocated', 'allocated')",
+            ];
+            $whenClause = implode(' OR ', $conditions);
+
+            DB::statement("
+                CREATE TRIGGER check_cost_items_enums_insert BEFORE INSERT ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_cost_items_enums_update BEFORE UPDATE ON cost_items
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
         }
     }
 };
