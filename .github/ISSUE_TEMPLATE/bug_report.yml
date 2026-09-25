@@ -1,0 +1,48 @@
+name: Bug Report
+description: File a bug report to help us fix issues in Lafiel.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please ensure you are not reporting a security vulnerability here. For security issues, refer to our [Security Policy](SECURITY.md).
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: Clear and concise description of what the bug is.
+      placeholder: Tell us what happened...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: Clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: PHP version, Database driver (SQLite/PostgreSQL), Deployment method (Docker Compose/Coolify/Local).
+      placeholder: e.g. PHP 8.5, PostgreSQL 18, Docker Compose
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Additional Context or Logs
+      description: Add any other context, stack traces, or screenshots about the problem here. (Redact any credentials or secrets!)
