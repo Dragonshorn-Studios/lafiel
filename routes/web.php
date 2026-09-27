@@ -13,8 +13,11 @@ Route::middleware(['auth'])->group(function () {
     Route::livewire('/', 'pages::overview.index')->name('overview');
 
     Route::livewire('costs', 'pages::costs.index')->name('costs.index');
+    Route::livewire('costs/add/{preset}', 'pages::costs.index')->name('costs.add')->whereNumber('preset');
     Route::livewire('costs/history', 'pages::costs.history')->name('costs.history');
     Route::livewire('costs/renewals', 'pages::costs.renewals')->name('costs.renewals');
+
+    Route::livewire('presets', 'pages::presets.index')->name('presets.index');
 
     Route::livewire('providers', 'pages::providers.index')->name('providers.index');
 

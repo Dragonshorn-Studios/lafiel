@@ -3,12 +3,13 @@
 use App\Domain\Costs\Actions\CreateManualCost;
 use App\Domain\Costs\Actions\EndManualCost;
 use App\Domain\Costs\Actions\UpdateManualCost;
-use App\Domain\Costs\AiSubscriptionPresets;
 use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
+use App\Domain\Costs\Models\SubscriptionPreset;
 use App\Domain\Inventory\Models\Service;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -16,7 +17,7 @@ use Livewire\Component;
 new #[Title('Services')] class extends Component {
     public bool $hideZeroCost = true;
 
-    public ?string $aiPresetKey = null;
+    public ?int $presetId = null;
 
     public string $vendor = '';
 
@@ -57,9 +58,21 @@ new #[Title('Services')] class extends Component {
      */
     public array $loadedPrice = ['amount' => '', 'currency' => 'PLN', 'period' => 'monthly'];
 
-    public function mount(): void
+    public function mount(?int $preset = null): void
     {
         $this->validFrom = now()->format('Y-m-d');
+
+        // Landing from the plans page's "Add as recurring cost" action.
+        if ($preset !== null) {
+            $found = SubscriptionPreset::query()->active()->find($preset);
+
+            if ($found !== null) {
+                $this->applyPreset($found);
+                $this->panelOpen = true;
+            } else {
+                Flux::toast(variant: 'warning', text: __('This plan no longer exists or has been archived.'));
+            }
+        }
     }
 
     /**
@@ -191,32 +204,56 @@ new #[Title('Services')] class extends Component {
         $this->resetForm();
     }
 
-    public function updatedAiPresetKey(?string $key): void
+    public function updatedPresetId($value): void
     {
-        if (blank($key)) {
+        if (blank($value)) {
             return;
         }
 
-        $preset = AiSubscriptionPresets::find($key);
+        $preset = SubscriptionPreset::query()->active()->find((int) $value);
 
         if ($preset === null) {
+            // The dropdown went stale (archived elsewhere) — fail
+            // closed rather than saving one plan's identity with
+            // another plan's price.
+            $this->reset('presetId');
+
             return;
         }
 
-        $this->vendor = $preset['vendor'];
-        $this->name = $preset['name'];
-        $this->category = $preset['category'];
-        $this->amount = $preset['amount'];
-        $this->currency = $preset['currency'];
-        $this->period = $preset['period'];
-        $this->autoRenew = $preset['auto_renew'];
-        $this->url = $preset['url'];
+        $this->applyPreset($preset);
+    }
+
+    /**
+     * The active plans offered as prefills in the add-cost flyout.
+     */
+    #[Computed]
+    public function presetOptions(): Collection
+    {
+        return SubscriptionPreset::query()
+            ->active()
+            ->orderBy('vendor')
+            ->orderBy('name')
+            ->get(['id', 'label']);
+    }
+
+    private function applyPreset(SubscriptionPreset $preset): void
+    {
+        $this->presetId = $preset->id;
+        $this->vendor = $preset->vendor;
+        $this->name = $preset->name;
+        $this->category = $preset->category;
+        $this->amount = $preset->money()->majorAmount();
+        $this->currency = $preset->currency;
+        $this->period = $preset->period->value;
+        $this->autoRenew = $preset->auto_renew;
+        $this->url = (string) $preset->url;
         $this->unknownAmount = false;
     }
 
     public function resetForm(): void
     {
-        $this->reset('aiPresetKey', 'vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingCostItemId');
+        $this->reset('presetId', 'vendor', 'name', 'category', 'unknownAmount', 'amount', 'currency', 'period', 'validTo', 'renewsAt', 'autoRenew', 'url', 'notes', 'coversServiceId', 'editingCostItemId');
         $this->validFrom = now()->format('Y-m-d');
         $this->currency = 'PLN';
         $this->period = 'monthly';
@@ -381,14 +418,15 @@ new #[Title('Services')] class extends Component {
         <form wire:submit="save" class="space-y-4">
             @if ($editingCostItemId === null)
                 <div>
-                    <flux:select wire:model.live="aiPresetKey" :label="__('AI Subscription Preset (optional)')">
+                    <flux:select wire:model.live="presetId" :label="__('Subscription preset (optional)')">
                         <flux:select.option :value="null">{{ __('— None (enter custom details) —') }}</flux:select.option>
-                        @foreach (\App\Domain\Costs\AiSubscriptionPresets::options() as $key => $label)
-                            <flux:select.option :value="$key">{{ $label }}</flux:select.option>
+                        @foreach ($this->presetOptions as $preset)
+                            <flux:select.option :value="$preset->id">{{ $preset->label }}</flux:select.option>
                         @endforeach
                     </flux:select>
                     <p class="mt-1 text-xs text-ink-muted">
-                        {{ __('Selecting a preset auto-populates provider, name, category, amount, currency, and renewal settings.') }}
+                        {{ __('Selecting a preset auto-populates vendor, name, category, amount, currency, and renewal settings.') }}
+                        <flux:link :href="route('presets.index')" wire:navigate>{{ __('Manage plans.') }}</flux:link>
                     </p>
                 </div>
             @endif
