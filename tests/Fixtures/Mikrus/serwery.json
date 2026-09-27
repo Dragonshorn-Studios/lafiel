@@ -1,0 +1,13 @@
+[
+    {
+        "name": "emil100",
+        "proto": "4",
+        "ip": "192.0.2.10",
+        "virtualization": "kvm"
+    },
+    {
+        "name": "emil200",
+        "proto": "6",
+        "ip": "192.0.2.20"
+    }
+]

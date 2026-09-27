@@ -163,3 +163,65 @@ Robot is deliberately not implemented yet: the Robot webservice shape must be va
 References: [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) and [Robot Webservice](https://robot.hetzner.com/doc/webservice/en.html).
 
 
+
+## Mikr.us — v1
+
+mikr.us is a Polish low-cost VPS provider with a small, POST-form API at
+[api.mikr.us](https://api.mikr.us/). The account API key is generated
+in the panel at `mikr.us/panel/?a=api` and is sent as the `key` form
+field on every call; per-server reads add `srv` (the server's stable
+name, e.g. `emil100`). The API is aggressively cached server-side (60s),
+so a sync makes one `/serwery` call plus one `/info` call per server and
+nothing else.
+
+### Capabilities
+
+- inventory: required. `/serwery` lists the account's servers (primary
+  observation; its failure fails the phase); each server is enriched
+  from `/info`, whose failure degrades the batch to partial with a
+  warning while the discovery stays.
+- subscriptions, renewal quotes, usage, invoices: unsupported. The
+  public API documents no billing endpoint — no price, invoice, or
+  balance surface of any kind. The adapter therefore declares **no cost
+  capability**: no cost fact is ever produced, and a price appears only
+  as a manual charge covering the discovered service (from the
+  subscription library or the cost form). A price is never inferred
+  from mikr.us's public plan list.
+
+### Metadata
+
+`/info`'s lifecycle-shaped fields (`expire`, `pro`, `cytrus_expire`,
+`storage_expire`) are passed through raw into adapter-owned
+`services.metadata` under `expiration`, `is_pro`, `cytrus_expiration`,
+and `storage_expiration` — never interpreted, never treated as prices.
+The column is overwritten wholesale on every sync; a response-shape
+change shows up as changed metadata, not as a sync failure. Drift
+between this expiration and a manual cost's `renews_at` is a possible
+follow-up warning.
+
+### Credentials
+
+One `api_key` (schema version 1, a single password field). 401/403
+reject the key permanently (`InvalidCredentialsException`, clearing
+`verified_at`); 429, 5xx, unreadable bodies, and connection failures
+are transient. Messages carry only the request path and status code.
+
+### Implementation (adapter `mikrus`, issue #69)
+
+- one namespace `App\Domain\Providers\Mikrus\` following the Contabo
+  layout: `MikrusApi` (POST-form interface), `HttpMikrusApi`,
+  `BuildMikrusApi`, `MikrusCredentialSchema`, `MikrusProviderAdapter`;
+- registered as provider key `mikrus` in `AppServiceProvider`;
+- `/cloud` is deliberately out of scope: its response shape is
+  unverifiable without a real account;
+- fixtures under `tests/Fixtures/Mikrus/` are synthetic and document
+  their shape assumptions.
+
+### Required real-account spike
+
+The fixture shapes are assumptions from the public API page and the
+community CLI. Before trusting metadata or error mapping in anger:
+regenerate `tests/Fixtures/Mikrus/` from a real read-only account
+(one `/serwery` + per-server `/info` capture), confirm the bad-key
+status code (401 vs 403 vs something else), and confirm
+`expire`/`pro` field names and types.
