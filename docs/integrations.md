@@ -225,3 +225,29 @@ regenerate `tests/Fixtures/Mikrus/` from a real read-only account
 (one `/serwery` + per-server `/info` capture), confirm the bad-key
 status code (401 vs 403 vs something else), and confirm
 `expire`/`pro` field names and types.
+
+## RackNerd — manual only
+
+RackNerd has **no public API**. Verified:
+
+- The client area (`my.racknerd.com`) runs on WHMCS, whose API is
+  admin-credentials-only — RackNerd does not provide API credentials
+  to customers, so the billing calls (`GetClientsProducts` and friends)
+  are out of reach by design.
+- The SolusVM control-panel API covers VPS operations (reboot,
+  reinstall) and knows nothing about billing.
+
+A read-only adapter is therefore impossible under the shared adapter
+rules. RackNerd runs entirely on the first-class manual path
+("Manual records"): a manual service row with `vendor: RackNerd`, no
+provider account, and a recurring cost — typically annual, with the
+renewal date taken from the invoice email.
+
+The subscription library ships RackNerd's recurring promotional VPS
+tiers (`racknerd:kvm_*_annual`) as editable starting points. Their
+prices are promotional and variable — they prefill, never authorize;
+the invoice is the source of truth for both price and renewal date.
+
+Out of scope, deliberately: WHMCS invoice-email parsing (fragile) and
+client-area scraping. Either would be a separate, explicitly scoped
+effort.

@@ -7,12 +7,13 @@ use App\Domain\Support\ValueObjects\Money;
 use Illuminate\Database\Seeder;
 
 /**
- * Seeds the subscription library with the built-in AI plan catalog
- * (formerly the hardcoded AiSubscriptionPresets list). Idempotent:
- * re-seeding only fills in missing keys and never overwrites an
- * existing preset — user edits survive. The one deliberate overwrite
- * path is the confirmed "Import from catalog" action, where the
- * catalog wins for keys it carries.
+ * Seeds the subscription library with the built-in plan catalog:
+ * AI plans (formerly the hardcoded AiSubscriptionPresets list,
+ * aligned with AIPricing.guru data) and provider VPS tiers curated
+ * manually. Idempotent: re-seeding only fills in missing keys and
+ * never overwrites an existing preset — user edits survive. The one
+ * deliberate overwrite path is the confirmed "Import from catalog"
+ * action, where the catalog wins for keys it carries.
  */
 class SubscriptionPresetSeeder extends Seeder
 {
@@ -30,7 +31,8 @@ class SubscriptionPresetSeeder extends Seeder
     }
 
     /**
-     * The built-in catalog, aligned with AIPricing.guru data.
+     * The built-in catalog: AI plans aligned with AIPricing.guru
+     * data, plus provider VPS tiers curated manually.
      *
      * @return list<array<string, mixed>>
      */
@@ -55,13 +57,22 @@ class SubscriptionPresetSeeder extends Seeder
             self::preset('elevenlabs:starter', 'ElevenLabs', 'ElevenLabs Starter', '5.00', 'https://elevenlabs.io'),
             self::preset('elevenlabs:creator', 'ElevenLabs', 'ElevenLabs Creator', '22.00', 'https://elevenlabs.io'),
             self::preset('poe:subscription', 'Poe', 'Poe Subscription', '19.99', 'https://poe.com'),
+
+            // RackNerd's recurring promotional VPS tiers. RackNerd has
+            // no billing API (docs/integrations.md) — these are
+            // editable starting points whose prices are promotional
+            // and variable, never authoritative.
+            self::preset('racknerd:kvm_768mb_annual', 'RackNerd', 'KVM 768MB', '10.99', 'https://www.racknerd.com', 'annual', category: 'compute'),
+            self::preset('racknerd:kvm_1gb_annual', 'RackNerd', 'KVM 1GB', '11.99', 'https://www.racknerd.com', 'annual', category: 'compute'),
+            self::preset('racknerd:kvm_2gb_annual', 'RackNerd', 'KVM 2GB', '19.99', 'https://www.racknerd.com', 'annual', category: 'compute'),
+            self::preset('racknerd:kvm_3gb_annual', 'RackNerd', 'KVM 3GB', '29.99', 'https://www.racknerd.com', 'annual', category: 'compute'),
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private static function preset(string $key, string $vendor, string $name, string $amount, string $url, string $period = 'monthly', string $unit = ''): array
+    private static function preset(string $key, string $vendor, string $name, string $amount, string $url, string $period = 'monthly', string $unit = '', string $category = 'ai'): array
     {
         $money = Money::ofString($amount, 'USD');
         $per = $period === 'annual' ? 'yr' : 'mo';
@@ -72,7 +83,7 @@ class SubscriptionPresetSeeder extends Seeder
             'label' => sprintf('%s — %s ($%s/%s%s)', $vendor, $name, $amount, $per, $unitSuffix),
             'vendor' => $vendor,
             'name' => $name,
-            'category' => 'ai',
+            'category' => $category,
             'amount_minor' => $money->amountMinor,
             'currency' => $money->currency,
             'period' => $period,

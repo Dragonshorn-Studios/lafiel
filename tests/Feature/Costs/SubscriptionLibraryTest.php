@@ -70,7 +70,7 @@ test('a negative plan price is rejected by the database', function () {
 test('the seeder seeds the built-in catalog idempotently without clobbering edits', function () {
     $this->seed(SubscriptionPresetSeeder::class);
 
-    expect(SubscriptionPreset::query()->count())->toBe(18);
+    expect(SubscriptionPreset::query()->count())->toBe(22);
 
     $preset = SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail();
     expect($preset->vendor)->toBe('OpenAI');
@@ -88,7 +88,7 @@ test('the seeder seeds the built-in catalog idempotently without clobbering edit
 
     $this->seed(SubscriptionPresetSeeder::class);
 
-    expect(SubscriptionPreset::query()->count())->toBe(18);
+    expect(SubscriptionPreset::query()->count())->toBe(22);
     expect($preset->fresh()->amount_minor)->toBe(1234);
 });
 
