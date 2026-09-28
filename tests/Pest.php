@@ -286,3 +286,14 @@ function mikrusResponses(): array
         '/info' => fn (array $fields): array => [...$info, 'name' => $fields['srv']],
     ];
 }
+
+/**
+ * Load one synthetic catalog fixture from
+ * tests/Fixtures/SubscriptionCatalogs.
+ */
+function catalogFixture(string $path): mixed
+{
+    $contents = file_get_contents(__DIR__.'/Fixtures/SubscriptionCatalogs/'.$path);
+
+    return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+}

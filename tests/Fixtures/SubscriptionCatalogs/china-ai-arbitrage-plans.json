@@ -1,0 +1,62 @@
+{
+    "_说明": "SYNTHETIC — shaped after the china-ai-arbitrage plans export for tests; no real account data.",
+    "_fields": {
+        "platform": "Provider display name (i18n)",
+        "plan": "Plan display name (i18n)",
+        "price": "Display price string with embedded currency"
+    },
+    "plans": [
+        {
+            "platform": { "en": "Claude", "zh": "Claude" },
+            "plan": { "en": "Claude Pro", "zh": "Claude Pro" },
+            "provider_slug": "anthropic",
+            "plan_slug": "claude-pro",
+            "platform_url": "https://www.anthropic.com/pricing",
+            "price": "$20",
+            "price_sub": { "en": "$200/yr", "zh": "$200/年" },
+            "billing": { "en": "Monthly", "zh": "按月" },
+            "segment": "global-consumer"
+        },
+        {
+            "platform": { "en": "Z.ai", "zh": "Z.ai" },
+            "plan": { "en": "GLM Coding Plan", "zh": "GLM Coding Plan" },
+            "provider_slug": "zai",
+            "plan_slug": "glm-coding-plan",
+            "platform_url": "https://z.ai/subscribe",
+            "price": "¥118.00",
+            "billing": { "en": "Monthly", "zh": "按月" },
+            "segment": "cn-coding"
+        },
+        {
+            "platform": { "en": "OpenAI", "zh": "OpenAI" },
+            "plan": { "en": "ChatGPT Pro", "zh": "ChatGPT Pro" },
+            "provider_slug": "openai",
+            "plan_slug": "chatgpt-pro",
+            "platform_url": "https://openai.com/pricing",
+            "price": "$200/年",
+            "billing": { "en": "Monthly / Annual", "zh": "按月 / 按年" },
+            "segment": "global-consumer"
+        },
+        {
+            "platform": { "en": "Perplexity", "zh": "Perplexity" },
+            "plan": { "en": "Perplexity Free", "zh": "Perplexity Free" },
+            "provider_slug": "perplexity",
+            "plan_slug": "perplexity-free",
+            "price": "$0",
+            "segment": "global-consumer"
+        },
+        {
+            "platform": { "en": "Mistral", "zh": "Mistral" },
+            "plan": { "en": "Le Chat", "zh": "Le Chat" },
+            "provider_slug": "mistral",
+            "plan_slug": "le-chat",
+            "price": "—",
+            "segment": "global-consumer"
+        },
+        {
+            "platform": { "en": "Broken", "zh": "Broken" },
+            "provider_slug": "broken",
+            "segment": "global-consumer"
+        }
+    ]
+}

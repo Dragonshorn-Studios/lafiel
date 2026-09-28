@@ -80,6 +80,8 @@ test('the seeder seeds the built-in catalog idempotently without clobbering edit
     expect($preset->period)->toBe(Period::Monthly);
     expect($preset->auto_renew)->toBeTrue();
     expect($preset->label)->toBe('OpenAI — ChatGPT Plus ($20.00/mo)');
+    expect($preset->source)->toBe('builtin');
+    expect($preset->source_url)->toBeNull();
 
     $seat = SubscriptionPreset::query()->where('key', 'openai:chatgpt_team')->firstOrFail();
     expect($seat->label)->toBe('OpenAI — ChatGPT Team ($25.00/mo/seat)');
@@ -110,6 +112,7 @@ test('a plan can be added with key and label derived from vendor and name', func
     expect($preset->amount_minor)->toBe(400);
     expect($preset->currency)->toBe('USD');
     expect($preset->archived_at)->toBeNull();
+    expect($preset->source)->toBe('manual');
 });
 
 test('a plan cannot claim another plan\'s key', function () {
@@ -237,6 +240,8 @@ test('plans are imported from the configured catalog url and malformed entries a
     expect($imported->currency)->toBe('USD');
     expect($imported->url)->toBe('https://custom.ai');
     expect($imported->label)->toBe('Custom Provider — Super AI ($50/mo)');
+    expect($imported->source)->toBe('catalog');
+    expect($imported->source_url)->toBe('https://example.com/catalog.json');
 
     $created = SubscriptionPreset::query()->where('key', 'custom:new_plan')->firstOrFail();
     expect($created->amount_minor)->toBe(700);
@@ -412,4 +417,488 @@ test('a non-numeric preset id on the landing route is a 404', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)->get('/costs/add/abc')->assertNotFound();
+});
+
+test('switching the catalog source swaps in that source\'s default url', function () {
+    $user = User::factory()->create();
+    config(['services.ai_presets_url' => 'https://example.com/lafiel-catalog.json']);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->assertSet('importUrl', 'https://example.com/lafiel-catalog.json')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->assertSet('importUrl', 'https://www.china-ai-arbitrage.xyz/data/plans.json')
+        ->set('importSource', 'lafiel')
+        ->assertSet('importUrl', 'https://example.com/lafiel-catalog.json');
+});
+
+test('plans are imported from the china-ai-arbitrage shape with parsed display prices', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response(catalogFixture('china-ai-arbitrage-plans.json'), 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    // 3 imported (Claude Pro, GLM Coding Plan, ChatGPT Pro), 3 skipped
+    // (free tier, placeholder price, entry missing its plan fields).
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->get();
+
+    expect($imported)->toHaveCount(3);
+
+    $claude = $imported->firstWhere('key', 'anthropic:claude-pro');
+    expect($claude->vendor)->toBe('Claude')
+        ->and($claude->name)->toBe('Claude Pro')
+        ->and($claude->amount_minor)->toBe(2000)
+        ->and($claude->currency)->toBe('USD')
+        ->and($claude->label)->toBe('Claude — Claude Pro ($20)')
+        ->and($claude->source_url)->toBe('https://www.china-ai-arbitrage.xyz/data/plans.json')
+        ->and($claude->url)->toBe('https://www.anthropic.com/pricing');
+
+    $glm = $imported->firstWhere('key', 'zai:glm-coding-plan');
+    expect($glm->amount_minor)->toBe(11800)
+        ->and($glm->currency)->toBe('CNY');
+
+    $pro = $imported->firstWhere('key', 'openai:chatgpt-pro');
+    expect($pro->amount_minor)->toBe(20000)
+        ->and($pro->currency)->toBe('USD')
+        ->and($pro->period->value)->toBe('annual');
+
+    // The seeded built-ins are untouched: arbitrage keys (hyphens) do
+    // not collide with builtin keys (underscores) — builtin keys are
+    // only ever overwritten by a catalog carrying the exact same key
+    // (covered by the collision test below).
+    expect(SubscriptionPreset::query()->where('key', 'anthropic:claude-pro')->count())->toBe(1)
+        ->and(SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail()->source)->toBe('builtin');
+});
+
+test('a body without a plans array is rejected as a shape mismatch for the arbitrage source', function () {
+    $user = User::factory()->create();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response(['models' => [['id' => 'gpt-x']]], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    Http::assertSentCount(1);
+    expect(SubscriptionPreset::query()->count())->toBe(0);
+});
+
+test('a generated catalog label is truncated to the column bound', function () {
+    $user = User::factory()->create();
+
+    $longName = str_repeat('w', 300);
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [[
+                'platform' => ['en' => $longName],
+                'plan' => ['en' => $longName],
+                'provider_slug' => 'long',
+                'plan_slug' => 'plan',
+                'price' => '$10',
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->firstOrFail();
+    expect(mb_strlen($imported->label))->toBe(255)
+        ->and(mb_strlen($imported->vendor))->toBe(255)
+        ->and(mb_strlen($imported->name))->toBe(255);
+});
+
+test('built-in plans are hidden everywhere once a catalog import exists', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+    $catalogRow = SubscriptionPreset::factory()->fromCatalog()->create(['name' => 'Catalog Plan']);
+    $manualRow = SubscriptionPreset::factory()->create(['name' => 'Manual Plan']);
+    $builtin = SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail();
+
+    // Costs page: the catalog and manual rows stay pickable, builtins don't.
+    $component = Livewire::actingAs($user)->test('pages::costs.index');
+    $options = $component->get('presetOptions')->pluck('id');
+    expect($options)->toContain($catalogRow->id)
+        ->and($options)->toContain($manualRow->id)
+        ->and($options)->not->toContain($builtin->id);
+
+    // Plans page: built-ins hidden until revealed.
+    $plans = Livewire::actingAs($user)->test('pages::presets.index');
+    expect($plans->get('presets')->pluck('id'))->toContain($catalogRow->id)
+        ->and($plans->get('presets')->pluck('id'))->toContain($manualRow->id)
+        ->and($plans->get('presets')->pluck('id'))->not->toContain($builtin->id);
+
+    $plans->set('showBuiltins', true);
+    expect($plans->get('presets')->pluck('id'))->toContain($builtin->id);
+});
+
+test('landing on a built-in plan while a catalog is in use warns and stays closed', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    $response = $this->actingAs($user)->get(route('costs.add', SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail()));
+
+    $response->assertOk();
+
+    $data = costsSnapshot($response)['data'];
+
+    expect($data['panelOpen'])->toBeFalse()
+        ->and($data['vendor'])->toBe('');
+});
+
+test('only built-in plans can be deleted outright, and only with a catalog active', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+    $manual = SubscriptionPreset::factory()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)->test('pages::presets.index')->call('destroy', $manual->id);
+    expect(SubscriptionPreset::query()->whereKey($manual->id)->exists())->toBeTrue();
+
+    Livewire::actingAs($user)->test('pages::presets.index')->call('destroy', $builtin->id);
+    expect(SubscriptionPreset::query()->whereKey($builtin->id)->exists())->toBeFalse();
+});
+
+test('the plans page attributes imported catalog data', function () {
+    $user = User::factory()->create();
+    SubscriptionPreset::factory()->fromCatalog('https://www.china-ai-arbitrage.xyz/data/plans.json')->create();
+
+    // The full attribution sentence is unique to the computed line —
+    // the import flyout copy shares its substrings.
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->assertSee('Plan data imported from www.china-ai-arbitrage.xyz — CC BY 4.0.');
+});
+
+test('archiving every catalog row releases the built-ins back into the pickers', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+    $catalogRow = SubscriptionPreset::factory()->fromCatalog()->create();
+
+    expect(SubscriptionPreset::catalogInUse())->toBeTrue();
+
+    $catalogRow->update(['archived_at' => now()]);
+
+    expect(SubscriptionPreset::catalogInUse())->toBeFalse();
+
+    $options = Livewire::actingAs($user)->test('pages::costs.index')->get('presetOptions')->pluck('id');
+    expect($options)->toContain(SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail()->id);
+});
+
+test('prices with thousands separators or extra decimals are skipped, not mis-parsed', function () {
+    $user = User::factory()->create();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [
+                ['platform' => ['en' => 'A'], 'plan' => ['en' => 'Comma'], 'provider_slug' => 'a', 'plan_slug' => 'comma', 'price' => '$1,299'],
+                ['platform' => ['en' => 'B'], 'plan' => ['en' => 'Thirds'], 'provider_slug' => 'b', 'plan_slug' => 'thirds', 'price' => '$20.999'],
+                ['platform' => ['en' => 'C'], 'plan' => ['en' => 'Clean'], 'provider_slug' => 'c', 'plan_slug' => 'clean', 'price' => '$30'],
+                ['platform' => ['en' => 'D'], 'plan' => ['en' => 'Overlong key'], 'provider_slug' => str_repeat('k', 300), 'plan_slug' => 'oversized', 'price' => '$30'],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->get();
+    expect($imported)->toHaveCount(1)
+        ->and($imported->firstOrFail()->key)->toBe('c:clean')
+        ->and($imported->firstOrFail()->amount_minor)->toBe(3000);
+});
+
+test('editing a built-in plan keeps it built-in', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+    $preset = SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail();
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('edit', $preset->id)
+        ->set('amount', '25.00')
+        ->call('save');
+
+    expect($preset->fresh()->source)->toBe('builtin')
+        ->and($preset->fresh()->amount_minor)->toBe(2500);
+});
+
+test('built-in plans cannot be deleted while no catalog is active', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+
+    Livewire::actingAs($user)->test('pages::presets.index')->call('destroy', $builtin->id);
+
+    expect(SubscriptionPreset::query()->whereKey($builtin->id)->exists())->toBeTrue();
+});
+
+test('a lafiel-shape mismatch is rejected instead of reporting zero imports', function () {
+    $user = User::factory()->create();
+    config(['services.ai_presets_url' => 'https://example.com/lafiel-catalog.json']);
+
+    Http::fake([
+        // The china-ai-arbitrage body pasted with the lafiel source
+        // selected: no keyed plan entries at the top level.
+        'https://example.com/lafiel-catalog.json' => Http::response(['plans' => [['platform' => ['en' => 'Claude']]]], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->call('importFromUrl')
+        ->assertSet('importOpen', true);
+
+    Http::assertSentCount(1);
+    expect(SubscriptionPreset::query()->count())->toBe(0);
+});
+
+test('a failed import keeps the flyout open with the url for correction', function () {
+    $user = User::factory()->create();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response(['models' => []], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl')
+        ->assertSet('importOpen', true)
+        ->assertSet('importUrl', 'https://www.china-ai-arbitrage.xyz/data/plans.json');
+
+    expect(SubscriptionPreset::query()->count())->toBe(0);
+});
+
+test('every currency marker the parser documents imports with the right code', function () {
+    $user = User::factory()->create();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [
+                ['platform' => ['en' => 'A'], 'plan' => ['en' => 'CodeUsd'], 'provider_slug' => 'a1', 'plan_slug' => 'code-usd', 'price' => 'USD 3'],
+                ['platform' => ['en' => 'B'], 'plan' => ['en' => 'CodeCny'], 'provider_slug' => 'a2', 'plan_slug' => 'code-cny', 'price' => 'CNY 5'],
+                ['platform' => ['en' => 'C'], 'plan' => ['en' => 'Fullwidth'], 'provider_slug' => 'a3', 'plan_slug' => 'fullwidth', 'price' => '￥45'],
+                ['platform' => ['en' => 'D'], 'plan' => ['en' => 'UsPrefix'], 'provider_slug' => 'a4', 'plan_slug' => 'us-prefix', 'price' => 'US$7'],
+                ['platform' => ['en' => 'E'], 'plan' => ['en' => 'Euro'], 'provider_slug' => 'a5', 'plan_slug' => 'euro', 'price' => '€13'],
+                ['platform' => ['en' => 'F'], 'plan' => ['en' => 'Pound'], 'provider_slug' => 'a6', 'plan_slug' => 'pound', 'price' => '£9'],
+                ['platform' => ['en' => 'G'], 'plan' => ['en' => 'AnnualYr'], 'provider_slug' => 'a7', 'plan_slug' => 'annual-yr', 'price' => '$2399.88/yr'],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->get()->keyBy('key');
+
+    expect($imported)->toHaveCount(7)
+        ->and($imported['a1:code-usd']->amount_minor)->toBe(300)
+        ->and($imported['a1:code-usd']->currency)->toBe('USD')
+        ->and($imported['a2:code-cny']->amount_minor)->toBe(500)
+        ->and($imported['a2:code-cny']->currency)->toBe('CNY')
+        ->and($imported['a3:fullwidth']->amount_minor)->toBe(4500)
+        ->and($imported['a3:fullwidth']->currency)->toBe('CNY')
+        ->and($imported['a4:us-prefix']->amount_minor)->toBe(700)
+        ->and($imported['a4:us-prefix']->currency)->toBe('USD')
+        ->and($imported['a5:euro']->amount_minor)->toBe(1300)
+        ->and($imported['a5:euro']->currency)->toBe('EUR')
+        ->and($imported['a6:pound']->amount_minor)->toBe(900)
+        ->and($imported['a6:pound']->currency)->toBe('GBP')
+        ->and($imported['a7:annual-yr']->amount_minor)->toBe(239988)
+        ->and($imported['a7:annual-yr']->currency)->toBe('USD')
+        ->and($imported['a7:annual-yr']->period->value)->toBe('annual');
+});
+
+test('a catalog key that collides with a built-in overwrites it, and re-seeding never resurrects the built-in', function () {
+    $user = User::factory()->create();
+    $this->seed(SubscriptionPresetSeeder::class);
+    expect(SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail()->source)->toBe('builtin');
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [[
+                'platform' => ['en' => 'OpenAI'],
+                'plan' => ['en' => 'ChatGPT Plus'],
+                'provider_slug' => 'openai',
+                'plan_slug' => 'chatgpt_plus',
+                'price' => '$20',
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    expect(SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->count())->toBe(1);
+
+    $row = SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->firstOrFail();
+    expect($row->source)->toBe('catalog')
+        ->and($row->vendor)->toBe('OpenAI');
+
+    // Re-seeding fills only missing keys; the catalog-owned row stays.
+    $this->seed(SubscriptionPresetSeeder::class);
+
+    expect(SubscriptionPreset::query()->where('key', 'openai:chatgpt_plus')->count())->toBe(1)
+        ->and($row->fresh()->source)->toBe('catalog');
+});
+
+test('a catalog url longer than the column bound is rejected before any fetch', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->set('importUrl', 'https://example.com/'.str_repeat('a', 2100))
+        ->call('importFromUrl')
+        ->assertSet('importOpen', true);
+
+    Http::assertNothingSent();
+
+    expect(SubscriptionPreset::query()->count())->toBe(0);
+});
+
+test('attribution names the publisher license only for known catalog hosts', function () {
+    $user = User::factory()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->assertSee('Plan data imported from example.com — licensed by its publisher.');
+});
+
+test('a mid-import database failure rolls back, is reported, and keeps the flyout open', function () {
+    $user = User::factory()->create();
+    Exceptions::fake();
+
+    $seen = 0;
+    SubscriptionPreset::creating(function () use (&$seen): void {
+        $seen++;
+        if ($seen === 2) {
+            throw new RuntimeException('Simulated mid-import database failure.');
+        }
+    });
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [
+                ['platform' => ['en' => 'A'], 'plan' => ['en' => 'First'], 'provider_slug' => 'a', 'plan_slug' => 'first', 'price' => '$1'],
+                ['platform' => ['en' => 'B'], 'plan' => ['en' => 'Second'], 'provider_slug' => 'b', 'plan_slug' => 'second', 'price' => '$2'],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->call('openImport')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl')
+        ->assertSet('importOpen', true);
+
+    expect(SubscriptionPreset::query()->count())->toBe(0);
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+test('re-importing an archived catalog row re-affirms it as active', function () {
+    $user = User::factory()->create();
+    $catalogRow = SubscriptionPreset::factory()->fromCatalog('https://www.china-ai-arbitrage.xyz/data/plans.json')->create([
+        'key' => 'anthropic:claude-pro',
+        'archived_at' => now(),
+    ]);
+    expect(SubscriptionPreset::catalogInUse())->toBeFalse();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [[
+                'platform' => ['en' => 'Claude'],
+                'plan' => ['en' => 'Claude Pro'],
+                'provider_slug' => 'anthropic',
+                'plan_slug' => 'claude-pro',
+                'price' => '$20',
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    expect(SubscriptionPreset::query()->where('key', 'anthropic:claude-pro')->count())->toBe(1)
+        ->and($catalogRow->fresh()->archived_at)->toBeNull()
+        ->and(SubscriptionPreset::catalogInUse())->toBeTrue();
+});
+
+test('arbitrage edge cases: out-of-range prices, wrong-typed names, year suffix, url truncation', function () {
+    $user = User::factory()->create();
+    $longUrl = 'https://www.anthropic.com/'.str_repeat('p', 2100);
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [
+                ['platform' => ['en' => 'A'], 'plan' => ['en' => 'Overflow'], 'provider_slug' => 'a1', 'plan_slug' => 'overflow', 'price' => '$99999999999999999999'],
+                ['platform' => 'not-an-object', 'plan' => ['en' => 'B'], 'provider_slug' => 'a2', 'plan_slug' => 'wrong-type', 'price' => '$5'],
+                ['platform' => ['en' => 'C'], 'plan' => ['en' => 'YearWord'], 'provider_slug' => 'a3', 'plan_slug' => 'year-word', 'price' => '$5/year'],
+                ['platform' => ['en' => 'D'], 'plan' => ['en' => 'LongUrl'], 'provider_slug' => 'a4', 'plan_slug' => 'long-url', 'price' => '$5', 'platform_url' => $longUrl],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->get()->keyBy('key');
+
+    // Out-of-range and wrong-typed entries are counted skips.
+    expect($imported)->toHaveCount(2)
+        ->and($imported['a3:year-word']->period->value)->toBe('annual')
+        ->and(mb_strlen((string) $imported['a4:long-url']->url))->toBeLessThanOrEqual(2048)
+        ->and($imported['a4:long-url']->url)->not->toBe($longUrl);
+});
+
+test('a revealed built-in cannot hand off to the costs page', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('showBuiltins', true)
+        ->call('addAsCost', $builtin->id)
+        ->assertNoRedirect();
+});
+
+test('a preset selection that goes stale by suppression fails closed', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::costs.index')
+        ->set('presetId', $builtin->id)
+        ->assertSet('presetId', null)
+        ->assertSet('vendor', '');
 });

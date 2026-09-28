@@ -89,6 +89,7 @@ class SubscriptionPresetSeeder extends Seeder
             'period' => $period,
             'auto_renew' => true,
             'url' => $url,
+            'source' => SubscriptionPreset::SOURCE_BUILTIN,
         ];
     }
 }

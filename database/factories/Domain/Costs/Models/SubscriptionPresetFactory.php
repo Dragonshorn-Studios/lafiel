@@ -40,7 +40,29 @@ class SubscriptionPresetFactory extends Factory
             'period' => 'monthly',
             'auto_renew' => true,
             'url' => fake()->url(),
+            'source' => SubscriptionPreset::SOURCE_MANUAL,
         ];
+    }
+
+    /**
+     * A preset that came from a remote catalog import.
+     */
+    public function fromCatalog(?string $sourceUrl = null): static
+    {
+        return $this->state(fn (): array => [
+            'source' => SubscriptionPreset::SOURCE_CATALOG,
+            'source_url' => $sourceUrl ?? 'https://example.com/catalog.json',
+        ]);
+    }
+
+    /**
+     * A preset that came from the built-in seeder.
+     */
+    public function builtin(): static
+    {
+        return $this->state(fn (): array => [
+            'source' => SubscriptionPreset::SOURCE_BUILTIN,
+        ]);
     }
 
     /**
