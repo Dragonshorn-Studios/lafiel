@@ -64,13 +64,13 @@ new #[Title('Services')] class extends Component {
 
         // Landing from the plans page's "Add as recurring cost" action.
         if ($preset !== null) {
-            $found = SubscriptionPreset::query()->active()->find($preset);
+            $found = SubscriptionPreset::query()->visible()->find($preset);
 
             if ($found !== null) {
                 $this->applyPreset($found);
                 $this->panelOpen = true;
             } else {
-                Flux::toast(variant: 'warning', text: __('This plan no longer exists or has been archived.'));
+                Flux::toast(variant: 'warning', text: __('This plan no longer exists, has been archived, or is hidden by an active catalog.'));
             }
         }
     }
@@ -210,7 +210,7 @@ new #[Title('Services')] class extends Component {
             return;
         }
 
-        $preset = SubscriptionPreset::query()->active()->find((int) $value);
+        $preset = SubscriptionPreset::query()->visible()->find((int) $value);
 
         if ($preset === null) {
             // The dropdown went stale (archived elsewhere) — fail
@@ -231,7 +231,7 @@ new #[Title('Services')] class extends Component {
     public function presetOptions(): Collection
     {
         return SubscriptionPreset::query()
-            ->active()
+            ->visible()
             ->orderBy('vendor')
             ->orderBy('name')
             ->get(['id', 'label']);

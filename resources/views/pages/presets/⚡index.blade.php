@@ -39,13 +39,66 @@ new #[Title('Plans')] class extends Component {
     public string $url = '';
 
     /**
+     * Once a catalog import exists, the built-in transcriptions are a
+     * crutch: hidden by default everywhere, revealable here only to
+     * be reviewed or deleted.
+     */
+    public bool $showBuiltins = false;
+
+    public bool $importOpen = false;
+
+    public string $importSource = ImportSubscriptionPresets::SOURCE_LAFIEL;
+
+    public string $importUrl = '';
+
+    /**
+     * Whether a live catalog is in use, which hides the built-ins.
+     */
+    #[Computed]
+    public function catalogInUse(): bool
+    {
+        return SubscriptionPreset::catalogInUse();
+    }
+
+    /**
      * The whole library, archived plans included — the page shows
-     * where each plan stands and restores them from here.
+     * where each plan stands and restores them from here. Built-in
+     * rows stay hidden while a catalog is in use unless revealed.
      */
     #[Computed]
     public function presets(): Collection
     {
-        return SubscriptionPreset::query()->orderBy('vendor')->orderBy('name')->get();
+        return SubscriptionPreset::query()
+            ->when($this->catalogInUse && ! $this->showBuiltins, fn ($query) => $query->where('source', '!=', 'builtin'))
+            ->orderBy('vendor')
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Attribution for imported catalog data, one line per distinct
+     * catalog host. The license note names the publisher only for
+     * catalogs whose license we know (china-ai-arbitrage: CC BY 4.0).
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function attribution(): array
+    {
+        return SubscriptionPreset::query()
+            ->where('source', 'catalog')
+            ->whereNotNull('source_url')
+            ->distinct()
+            ->orderBy('source_url')
+            ->pluck('source_url')
+            ->map(fn (string $url) => parse_url($url, PHP_URL_HOST))
+            ->filter(fn ($host) => is_string($host) && $host !== '')
+            ->unique()
+            ->values()
+            ->map(fn (string $host): string => str_contains($host, 'china-ai-arbitrage')
+                ? __('Plan data imported from :host — CC BY 4.0.', ['host' => $host])
+                : __('Plan data imported from :host — licensed by its publisher.', ['host' => $host]))
+            ->all();
     }
 
     /**
@@ -110,14 +163,50 @@ new #[Title('Plans')] class extends Component {
         ];
 
         if ($this->editingPresetId !== null) {
+            // Updates never touch `source`: editing a built-in keeps it
+            // built-in (your edit, its identity), so suppression and
+            // deletion semantics stay predictable.
             $this->preset($this->editingPresetId)->update($attributes);
         } else {
-            SubscriptionPreset::create($attributes);
+            SubscriptionPreset::create($attributes + ['source' => 'manual']);
         }
 
         Flux::toast(variant: 'success', text: __('Plan saved.'));
 
         $this->closePanel();
+    }
+
+    /**
+     * Built-in rows are pure prefill — no cost item references them —
+     * so they can be deleted outright, but only once a live catalog
+     * has replaced them: deleting built-ins with no active catalog
+     * would leave the pickers empty.
+     */
+    public function destroy(int $presetId): void
+    {
+        $preset = SubscriptionPreset::query()->find($presetId);
+
+        if ($preset === null) {
+            Flux::toast(variant: 'warning', text: __('This plan no longer exists. Reload and try again.'));
+
+            return;
+        }
+
+        if ($preset->source !== 'builtin') {
+            Flux::toast(variant: 'warning', text: __('Only built-in plans can be deleted. Archive your own plans instead.'));
+
+            return;
+        }
+
+        if (! SubscriptionPreset::catalogInUse()) {
+            Flux::toast(variant: 'warning', text: __('Import a catalog first — deleting the built-ins now would leave the library empty.'));
+
+            return;
+        }
+
+        $preset->delete();
+
+        Flux::toast(variant: 'success', text: __('Built-in plan deleted.'));
     }
 
     public function archive(int $presetId): void
@@ -150,10 +239,10 @@ new #[Title('Plans')] class extends Component {
      */
     public function addAsCost(int $presetId): void
     {
-        $preset = SubscriptionPreset::query()->active()->find($presetId);
+        $preset = SubscriptionPreset::query()->visible()->find($presetId);
 
         if ($preset === null) {
-            Flux::toast(variant: 'warning', text: __('This plan is archived. Restore it to add costs from it.'));
+            Flux::toast(variant: 'warning', text: __('This plan is archived or hidden. Restore or reveal it to add costs from it.'));
 
             return;
         }
@@ -162,15 +251,40 @@ new #[Title('Plans')] class extends Component {
     }
 
     /**
-     * Pull the remote catalog (AI_PRESETS_URL by default) as an
-     * explicit, user-triggered action; entries are upserted by key.
+     * Open the import flyout with the chosen source's default URL.
+     */
+    public function openImport(): void
+    {
+        $this->importUrl = $this->defaultImportUrl($this->importSource);
+        $this->importOpen = true;
+    }
+
+    /**
+     * Switching source swaps in that source's default URL.
+     */
+    public function updatedImportSource(string $value): void
+    {
+        $this->importUrl = $this->defaultImportUrl($value);
+    }
+
+    /**
+     * Pull the remote catalog as an explicit, user-triggered action;
+     * entries are upserted by key and tagged as catalog-sourced.
      */
     public function importFromUrl(): void
     {
         try {
-            $result = app(ImportSubscriptionPresets::class)->import();
+            $result = app(ImportSubscriptionPresets::class)->import($this->importUrl ?: null, $this->importSource);
         } catch (ValidationException $exception) {
             Flux::toast(variant: 'danger', text: (string) collect($exception->errors())->flatten()->first());
+
+            return;
+        } catch (\Throwable $exception) {
+            // Rollback already preserved the old library; the cause is
+            // in the logs, the user gets a clean retry.
+            report($exception);
+
+            Flux::toast(variant: 'danger', text: __('The import failed unexpectedly. Please try again.'));
 
             return;
         }
@@ -179,6 +293,15 @@ new #[Title('Plans')] class extends Component {
             variant: 'success',
             text: __('Imported :imported plans (:updated updated, :skipped skipped).', ['imported' => $result['imported'], 'updated' => $result['updated'], 'skipped' => $result['skipped']]),
         );
+
+        $this->importOpen = false;
+    }
+
+    private function defaultImportUrl(string $source): string
+    {
+        return $source === ImportSubscriptionPresets::SOURCE_CHINA_AI_ARBITRAGE
+            ? ImportSubscriptionPresets::CHINA_AI_ARBITRAGE_URL
+            : (string) config('services.ai_presets_url');
     }
 
     public function closePanel(): void
@@ -300,7 +423,11 @@ new #[Title('Plans')] class extends Component {
         </div>
 
         <div class="flex items-center gap-4">
-            <flux:button icon="arrow-down-tray" wire:click="importFromUrl" wire:confirm="{{ __('Importing overwrites existing plans that carry the same key. Continue?') }}" data-test="import-presets-button">
+            @if ($this->catalogInUse)
+                <flux:checkbox wire:model.live="showBuiltins" :label="__('Show built-in plans')" data-test="show-builtins-toggle" />
+            @endif
+
+            <flux:button icon="arrow-down-tray" wire:click="openImport" data-test="import-presets-button">
                 {{ __('Import from catalog') }}
             </flux:button>
 
@@ -309,6 +436,12 @@ new #[Title('Plans')] class extends Component {
             </flux:button>
         </div>
     </div>
+
+    @if ($this->attribution !== [])
+        @foreach ($this->attribution as $line)
+            <p class="text-xs text-ink-muted">{{ $line }}</p>
+        @endforeach
+    @endif
 
     @if ($this->presets->isEmpty())
         <x-imperial.empty-state :hint="__('Plans you add or import appear here, ready to be added as recurring costs.')">
@@ -334,6 +467,11 @@ new #[Title('Plans')] class extends Component {
 
                         <flux:table.cell>
                             <span class="font-medium">{{ $preset->name }}</span>
+                            @if ($preset->source === 'builtin')
+                                <flux:badge size="sm">{{ __('Built-in') }}</flux:badge>
+                            @elseif ($preset->source === 'catalog')
+                                <flux:badge size="sm" variant="info">{{ __('Catalog') }}</flux:badge>
+                            @endif
                             <span class="block text-xs text-ink-muted">{{ $preset->label }}</span>
                         </flux:table.cell>
 
@@ -362,6 +500,11 @@ new #[Title('Plans')] class extends Component {
                                 </flux:button>
                             @else
                                 <flux:button size="xs" wire:click="restore({{ $preset->id }})" data-test="restore-preset-{{ $preset->id }}">{{ __('Restore') }}</flux:button>
+                            @endif
+                            @if ($preset->source === 'builtin')
+                                <flux:button size="xs" variant="danger" wire:click="destroy({{ $preset->id }})" wire:confirm="{{ __('Delete this built-in plan permanently?') }}" data-test="delete-preset-{{ $preset->id }}">
+                                    {{ __('Delete') }}
+                                </flux:button>
                             @endif
                         </flux:table.cell>
                     </flux:table.row>
@@ -411,6 +554,31 @@ new #[Title('Plans')] class extends Component {
             <div class="flex gap-2 pt-2">
                 <flux:button variant="primary" type="submit" data-test="save-preset">{{ __('Save') }}</flux:button>
                 <flux:button type="button" wire:click="closePanel">{{ __('Cancel') }}</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    {{-- The import form: source and URL are explicit, never ambient. --}}
+    <flux:modal name="import-form" wire:model="importOpen" class="w-full max-w-md">
+        <flux:heading size="lg" class="mb-6">{{ __('Import from catalog') }}</flux:heading>
+
+        <form wire:submit="importFromUrl" class="space-y-4">
+            <flux:select wire:model.live="importSource" :label="__('Catalog source')" data-test="import-source">
+                <flux:select.option :value="\App\Domain\Costs\Actions\ImportSubscriptionPresets::SOURCE_LAFIEL">{{ __('Lafiel catalog (AI_PRESETS_URL)') }}</flux:select.option>
+                <flux:select.option :value="\App\Domain\Costs\Actions\ImportSubscriptionPresets::SOURCE_CHINA_AI_ARBITRAGE">{{ __('china-ai-arbitrage (AI plans, CC BY 4.0)') }}</flux:select.option>
+            </flux:select>
+
+            <flux:input wire:model="importUrl" :label="__('Catalog URL')" type="url" data-test="import-url" />
+
+            <p class="text-xs text-ink-muted">
+                {{ __('Importing upserts plans by key: the catalog wins for keys it carries. As long as an imported plan stays active, the built-in transcriptions stay hidden. External catalog data remains licensed by its publisher.') }}
+            </p>
+
+            <div class="flex gap-2 pt-2">
+                <flux:button variant="primary" type="submit" wire:confirm="{{ __('Importing overwrites existing plans that carry the same key. Continue?') }}" data-test="import-submit">
+                    {{ __('Import') }}
+                </flux:button>
+                <flux:button type="button" wire:click="$set('importOpen', false)">{{ __('Cancel') }}</flux:button>
             </div>
         </form>
     </flux:modal>
