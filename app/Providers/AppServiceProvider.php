@@ -13,6 +13,8 @@ use App\Domain\Providers\Contabo\ContaboProviderAdapter;
 use App\Domain\Providers\CredentialSchemas;
 use App\Domain\Providers\Hetzner\Cloud\HetznerCloudCredentialSchema;
 use App\Domain\Providers\Hetzner\Cloud\HetznerCloudProviderAdapter;
+use App\Domain\Providers\Mikrus\MikrusCredentialSchema;
+use App\Domain\Providers\Mikrus\MikrusProviderAdapter;
 use App\Domain\Providers\OpenRouter\OpenRouterCredentialSchema;
 use App\Domain\Providers\OpenRouter\OpenRouterProviderAdapter;
 use App\Domain\Providers\Ovh\OvhCredentialSchema;
@@ -41,6 +43,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ContaboProviderAdapter::class);
         $this->app->singleton(HetznerCloudProviderAdapter::class);
         $this->app->singleton(OpenRouterProviderAdapter::class);
+        $this->app->singleton(MikrusProviderAdapter::class);
     }
 
     /**
@@ -56,6 +59,7 @@ class AppServiceProvider extends ServiceProvider
         $adapters->register('contabo', $this->app->make(ContaboProviderAdapter::class));
         $adapters->register('hetzner-cloud', $this->app->make(HetznerCloudProviderAdapter::class));
         $adapters->register('openrouter', $this->app->make(OpenRouterProviderAdapter::class));
+        $adapters->register('mikrus', $this->app->make(MikrusProviderAdapter::class));
 
         $schemas = $this->app->make(CredentialSchemas::class);
         $schemas->register('ovh', OvhCredentialSchema::class);
@@ -63,6 +67,7 @@ class AppServiceProvider extends ServiceProvider
         $schemas->register('contabo', ContaboCredentialSchema::class);
         $schemas->register('hetzner-cloud', HetznerCloudCredentialSchema::class);
         $schemas->register('openrouter', OpenRouterCredentialSchema::class);
+        $schemas->register('mikrus', MikrusCredentialSchema::class);
 
         Event::listen(DiagnosingHealth::class, VerifyDatabaseHealth::class);
         Event::listen(DiagnosingHealth::class, EnsureOpsHealthy::class);
