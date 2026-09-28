@@ -578,10 +578,11 @@ test('the plans page attributes imported catalog data', function () {
     $user = User::factory()->create();
     SubscriptionPreset::factory()->fromCatalog('https://www.china-ai-arbitrage.xyz/data/plans.json')->create();
 
+    // The full attribution sentence is unique to the computed line —
+    // the import flyout copy shares its substrings.
     Livewire::actingAs($user)
         ->test('pages::presets.index')
-        ->assertSee('china-ai-arbitrage.xyz')
-        ->assertSee('CC BY 4.0');
+        ->assertSee('Plan data imported from www.china-ai-arbitrage.xyz — CC BY 4.0.');
 });
 
 test('archiving every catalog row releases the built-ins back into the pickers', function () {
@@ -661,7 +662,8 @@ test('a lafiel-shape mismatch is rejected instead of reporting zero imports', fu
     Livewire::actingAs($user)
         ->test('pages::presets.index')
         ->call('openImport')
-        ->call('importFromUrl');
+        ->call('importFromUrl')
+        ->assertSet('importOpen', true);
 
     Http::assertSentCount(1);
     expect(SubscriptionPreset::query()->count())->toBe(0);
@@ -783,8 +785,7 @@ test('attribution names the publisher license only for known catalog hosts', fun
 
     Livewire::actingAs($user)
         ->test('pages::presets.index')
-        ->assertSee('example.com')
-        ->assertSee('licensed by its publisher');
+        ->assertSee('Plan data imported from example.com — licensed by its publisher.');
 });
 
 test('a mid-import database failure rolls back, is reported, and keeps the flyout open', function () {
@@ -817,4 +818,87 @@ test('a mid-import database failure rolls back, is reported, and keeps the flyou
 
     expect(SubscriptionPreset::query()->count())->toBe(0);
     Exceptions::assertReported(RuntimeException::class);
+});
+
+test('re-importing an archived catalog row re-affirms it as active', function () {
+    $user = User::factory()->create();
+    $catalogRow = SubscriptionPreset::factory()->fromCatalog('https://www.china-ai-arbitrage.xyz/data/plans.json')->create([
+        'key' => 'anthropic:claude-pro',
+        'archived_at' => now(),
+    ]);
+    expect(SubscriptionPreset::catalogInUse())->toBeFalse();
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [[
+                'platform' => ['en' => 'Claude'],
+                'plan' => ['en' => 'Claude Pro'],
+                'provider_slug' => 'anthropic',
+                'plan_slug' => 'claude-pro',
+                'price' => '$20',
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    expect(SubscriptionPreset::query()->where('key', 'anthropic:claude-pro')->count())->toBe(1)
+        ->and($catalogRow->fresh()->archived_at)->toBeNull()
+        ->and(SubscriptionPreset::catalogInUse())->toBeTrue();
+});
+
+test('arbitrage edge cases: out-of-range prices, wrong-typed names, year suffix, url truncation', function () {
+    $user = User::factory()->create();
+    $longUrl = 'https://www.anthropic.com/'.str_repeat('p', 2100);
+
+    Http::fake([
+        'https://www.china-ai-arbitrage.xyz/*' => Http::response([
+            'plans' => [
+                ['platform' => ['en' => 'A'], 'plan' => ['en' => 'Overflow'], 'provider_slug' => 'a1', 'plan_slug' => 'overflow', 'price' => '$99999999999999999999'],
+                ['platform' => 'not-an-object', 'plan' => ['en' => 'B'], 'provider_slug' => 'a2', 'plan_slug' => 'wrong-type', 'price' => '$5'],
+                ['platform' => ['en' => 'C'], 'plan' => ['en' => 'YearWord'], 'provider_slug' => 'a3', 'plan_slug' => 'year-word', 'price' => '$5/year'],
+                ['platform' => ['en' => 'D'], 'plan' => ['en' => 'LongUrl'], 'provider_slug' => 'a4', 'plan_slug' => 'long-url', 'price' => '$5', 'platform_url' => $longUrl],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('importSource', 'china-ai-arbitrage')
+        ->call('importFromUrl');
+
+    $imported = SubscriptionPreset::query()->where('source', 'catalog')->get()->keyBy('key');
+
+    // Out-of-range and wrong-typed entries are counted skips.
+    expect($imported)->toHaveCount(2)
+        ->and($imported['a3:year-word']->period->value)->toBe('annual')
+        ->and(mb_strlen((string) $imported['a4:long-url']->url))->toBeLessThanOrEqual(2048)
+        ->and($imported['a4:long-url']->url)->not->toBe($longUrl);
+});
+
+test('a revealed built-in cannot hand off to the costs page', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::presets.index')
+        ->set('showBuiltins', true)
+        ->call('addAsCost', $builtin->id)
+        ->assertNoRedirect();
+});
+
+test('a preset selection that goes stale by suppression fails closed', function () {
+    $user = User::factory()->create();
+    $builtin = SubscriptionPreset::factory()->builtin()->create();
+    SubscriptionPreset::factory()->fromCatalog()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::costs.index')
+        ->set('presetId', $builtin->id)
+        ->assertSet('presetId', null)
+        ->assertSet('vendor', '');
 });

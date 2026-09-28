@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -20,6 +21,8 @@ return new class extends Migration
             $table->string('source')->default('builtin')->after('url');
             $table->string('source_url', 2048)->nullable()->after('source');
         });
+
+        $this->addEnumChecks();
     }
 
     /**
@@ -30,5 +33,31 @@ return new class extends Migration
         Schema::table('subscription_presets', function (Blueprint $table) {
             $table->dropColumn(['source', 'source_url']);
         });
+    }
+
+    private function addEnumChecks(): void
+    {
+        $checks = [
+            "source IN ('builtin', 'manual', 'catalog')",
+        ];
+
+        if (DB::getDriverName() !== 'sqlite') {
+            foreach ($checks as $check) {
+                DB::statement("ALTER TABLE subscription_presets ADD CHECK ({$check})");
+            }
+        } else {
+            $whenClause = "NEW.source NOT IN ('builtin', 'manual', 'catalog')";
+
+            DB::statement("
+                CREATE TRIGGER check_subscription_presets_source_insert BEFORE INSERT ON subscription_presets
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+            DB::statement("
+                CREATE TRIGGER check_subscription_presets_source_update BEFORE UPDATE ON subscription_presets
+                WHEN {$whenClause}
+                BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed'); END;
+            ");
+        }
     }
 };

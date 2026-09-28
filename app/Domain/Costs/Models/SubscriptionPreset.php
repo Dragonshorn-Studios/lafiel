@@ -48,6 +48,22 @@ use Illuminate\Database\Eloquent\Model;
 #[Fillable(['key', 'label', 'vendor', 'name', 'category', 'amount_minor', 'currency', 'period', 'auto_renew', 'url', 'source', 'source_url', 'archived_at'])]
 class SubscriptionPreset extends Model
 {
+    /** Row origin: the seeder's transcriptions. */
+    public const SOURCE_BUILTIN = 'builtin';
+
+    /** Row origin: hand-added on the Plans page. */
+    public const SOURCE_MANUAL = 'manual';
+
+    /** Row origin: imported from a remote catalog (source_url has provenance). */
+    public const SOURCE_CATALOG = 'catalog';
+
+    /** @var list<string> the closed `source` dimension, mirrored by a column CHECK */
+    public const SOURCES = [
+        self::SOURCE_BUILTIN,
+        self::SOURCE_MANUAL,
+        self::SOURCE_CATALOG,
+    ];
+
     /** @use HasFactory<SubscriptionPresetFactory> */
     use HasFactory;
 
@@ -83,7 +99,7 @@ class SubscriptionPreset extends Model
     public static function catalogInUse(): bool
     {
         return static::query()
-            ->where('source', 'catalog')
+            ->where('source', self::SOURCE_CATALOG)
             ->whereNull('archived_at')
             ->exists();
     }
@@ -100,7 +116,7 @@ class SubscriptionPreset extends Model
         $query->whereNull('archived_at');
 
         if (self::catalogInUse()) {
-            $query->where('source', '!=', 'builtin');
+            $query->where('source', '!=', self::SOURCE_BUILTIN);
         }
 
         return $query;

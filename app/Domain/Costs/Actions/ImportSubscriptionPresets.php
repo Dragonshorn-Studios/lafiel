@@ -22,8 +22,14 @@ use Throwable;
  * Entries are upserted by key (the catalog wins for that key);
  * entries that are malformed or carry an unusable amount are skipped
  * and counted, never fatal. Every imported row is tagged
- * `source: catalog`, which hides the built-in transcriptions from the
- * pickers — a live catalog demotes them to a crutch.
+ * `source: catalog` and re-affirmed active, which hides the built-in
+ * transcriptions from the pickers — a live catalog demotes them to a
+ * crutch.
+ *
+ * Trust model: the fetch is a server-side GET of an operator-chosen
+ * URL. This app has exactly one locally-provisioned administrator and
+ * no open registration, so the operator is the only person who can
+ * point it anywhere; revisit if the app ever becomes multi-user.
  */
 final class ImportSubscriptionPresets
 {
@@ -110,8 +116,13 @@ final class ImportSubscriptionPresets
                     continue;
                 }
 
-                $attributes['source'] = 'catalog';
+                $attributes['source'] = SubscriptionPreset::SOURCE_CATALOG;
                 $attributes['source_url'] = $url;
+                // The catalog carrying a plan is positive evidence it
+                // exists: re-importing un-archives it, so the
+                // suppression state machine can always be repaired by
+                // re-running the import.
+                $attributes['archived_at'] = null;
 
                 $preset = SubscriptionPreset::query()->updateOrCreate(
                     ['key' => $attributes['key']],

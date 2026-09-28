@@ -40,7 +40,7 @@ class SubscriptionPresetFactory extends Factory
             'period' => 'monthly',
             'auto_renew' => true,
             'url' => fake()->url(),
-            'source' => 'manual',
+            'source' => SubscriptionPreset::SOURCE_MANUAL,
         ];
     }
 
@@ -50,7 +50,7 @@ class SubscriptionPresetFactory extends Factory
     public function fromCatalog(?string $sourceUrl = null): static
     {
         return $this->state(fn (): array => [
-            'source' => 'catalog',
+            'source' => SubscriptionPreset::SOURCE_CATALOG,
             'source_url' => $sourceUrl ?? 'https://example.com/catalog.json',
         ]);
     }
@@ -61,7 +61,7 @@ class SubscriptionPresetFactory extends Factory
     public function builtin(): static
     {
         return $this->state(fn (): array => [
-            'source' => 'builtin',
+            'source' => SubscriptionPreset::SOURCE_BUILTIN,
         ]);
     }
 

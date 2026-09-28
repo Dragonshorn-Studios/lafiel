@@ -69,7 +69,7 @@ new #[Title('Plans')] class extends Component {
     public function presets(): Collection
     {
         return SubscriptionPreset::query()
-            ->when($this->catalogInUse && ! $this->showBuiltins, fn ($query) => $query->where('source', '!=', 'builtin'))
+            ->when($this->catalogInUse && ! $this->showBuiltins, fn ($query) => $query->where('source', '!=', SubscriptionPreset::SOURCE_BUILTIN))
             ->orderBy('vendor')
             ->orderBy('name')
             ->get();
@@ -168,7 +168,7 @@ new #[Title('Plans')] class extends Component {
             // deletion semantics stay predictable.
             $this->preset($this->editingPresetId)->update($attributes);
         } else {
-            SubscriptionPreset::create($attributes + ['source' => 'manual']);
+            SubscriptionPreset::create($attributes + ['source' => SubscriptionPreset::SOURCE_MANUAL]);
         }
 
         Flux::toast(variant: 'success', text: __('Plan saved.'));
@@ -192,7 +192,7 @@ new #[Title('Plans')] class extends Component {
             return;
         }
 
-        if ($preset->source !== 'builtin') {
+        if ($preset->source !== SubscriptionPreset::SOURCE_BUILTIN) {
             Flux::toast(variant: 'warning', text: __('Only built-in plans can be deleted. Archive your own plans instead.'));
 
             return;
@@ -467,9 +467,9 @@ new #[Title('Plans')] class extends Component {
 
                         <flux:table.cell>
                             <span class="font-medium">{{ $preset->name }}</span>
-                            @if ($preset->source === 'builtin')
+                            @if ($preset->source === SubscriptionPreset::SOURCE_BUILTIN)
                                 <flux:badge size="sm">{{ __('Built-in') }}</flux:badge>
-                            @elseif ($preset->source === 'catalog')
+                            @elseif ($preset->source === SubscriptionPreset::SOURCE_CATALOG)
                                 <flux:badge size="sm" variant="info">{{ __('Catalog') }}</flux:badge>
                             @endif
                             <span class="block text-xs text-ink-muted">{{ $preset->label }}</span>
@@ -501,7 +501,7 @@ new #[Title('Plans')] class extends Component {
                             @else
                                 <flux:button size="xs" wire:click="restore({{ $preset->id }})" data-test="restore-preset-{{ $preset->id }}">{{ __('Restore') }}</flux:button>
                             @endif
-                            @if ($preset->source === 'builtin')
+                            @if ($preset->source === SubscriptionPreset::SOURCE_BUILTIN && $this->catalogInUse)
                                 <flux:button size="xs" variant="danger" wire:click="destroy({{ $preset->id }})" wire:confirm="{{ __('Delete this built-in plan permanently?') }}" data-test="delete-preset-{{ $preset->id }}">
                                     {{ __('Delete') }}
                                 </flux:button>
