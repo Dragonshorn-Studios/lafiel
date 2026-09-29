@@ -73,14 +73,14 @@ new #[Title('Overview')] class extends Component {
      * widget is for. Known zeros and unknown-pricing rows stay out of
      * the Overview but remain on the Renewals page and in coverage.
      *
-     * @return list<array{name: string, provider: string, amount: ?Money, renews_at: \Carbon\CarbonImmutable, auto_renew: bool, cost_item: \App\Domain\Costs\Models\CostItem}>
+     * @return list<array{name: string, provider: string, amount: Money, renews_at: \Carbon\CarbonImmutable, auto_renew: bool, cost_item: \App\Domain\Costs\Models\CostItem}>
      */
     #[Computed]
     public function pricedUpcomingRenewals(): array
     {
         return array_values(array_filter(
             $this->upcoming->rows,
-            fn (array $row): bool => $row['amount'] !== null && ! $row['amount']->isZero(),
+            fn (array $row): bool => $row['amount'] !== null && $row['amount']->amountMinor > 0,
         ));
     }
 
@@ -238,10 +238,7 @@ new #[Title('Overview')] class extends Component {
                                 <flux:table.cell class="font-medium">{{ $row['name'] }}</flux:table.cell>
                                 <flux:table.cell class="text-ink-secondary">{{ $row['provider'] }}</flux:table.cell>
                                 <flux:table.cell class="font-mono tabular-nums">
-                                    {{ $row['amount']?->majorAmount() ?? __('unknown') }}
-                                    @if ($row['amount'] !== null)
-                                        {{ $row['amount']->currency }}
-                                    @endif
+                                    {{ $row['amount']->majorAmount() }} {{ $row['amount']->currency }}
                                 </flux:table.cell>
                                 <flux:table.cell class="font-mono tabular-nums">{{ $row['renews_at']->format('Y-m-d') }}</flux:table.cell>
                             </flux:table.row>

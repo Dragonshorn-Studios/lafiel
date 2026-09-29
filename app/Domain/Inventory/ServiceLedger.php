@@ -15,7 +15,10 @@ use Carbon\CarbonImmutable;
  * projector, so evidence selection and equivalents are computed in
  * exactly one place. One row per service — manual and
  * provider-discovered — with a roll-up of its open winning charges;
- * the table never sums money by itself.
+ * the table never sums money by itself. The one sanctioned exception
+ * is presentation: the Services view may group rows and add their
+ * already-displayed, already-rounded monthly equivalents per currency
+ * into a group header, never re-deriving or converting an equivalent.
  */
 class ServiceLedger
 {
