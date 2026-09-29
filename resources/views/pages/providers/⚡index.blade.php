@@ -546,163 +546,179 @@ new #[Title('Providers')] class extends Component {
             </flux:button>
         </x-imperial.empty-state>
     @else
-        <div class="grid gap-4 xl:grid-cols-2">
+        <div class="grid gap-4 lg:grid-cols-2">
             @foreach ($this->accounts as $account)
                 @php($check = $connectionChecks[$account->id] ?? null)
 
-                <flux:card data-test="provider-account">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <flux:heading class="mr-auto">{{ $account->display_name }}</flux:heading>
+                {{-- One grid child per account: the card plus its two
+                     confirm modals. Bare modals as grid siblings claim
+                     cells and stagger the cards into a zig-zag with
+                     holes — the layout bug this wrapper fixes. --}}
+                <div class="min-w-0">
+                    <flux:card class="h-full" data-test="provider-account">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <flux:heading class="mr-auto">{{ $account->display_name }}</flux:heading>
 
-                        @php($verified = $account->credentials->sortByDesc('id')->first()?->verified_at !== null)
+                            @php($verified = $account->credentials->sortByDesc('id')->first()?->verified_at !== null)
 
-                        @if ($verified)
-                            <flux:badge variant="success" size="sm">{{ __('Verified') }}</flux:badge>
-                        @else
-                            <flux:badge variant="warning" size="sm">{{ __('Not verified') }}</flux:badge>
-                        @endif
-
-                        @if (! $account->enabled)
-                            <flux:badge size="sm">{{ __('Sync paused') }}</flux:badge>
-                        @endif
-
-                        {{-- The last-run status opens the details modal; it is a
-                             real button so it reads as clickable and works from
-                             the keyboard (issue #49). --}}
-                        <button
-                            type="button"
-                            wire:click="openSyncDetails({{ $account->id }})"
-                            class="group inline-flex cursor-pointer items-center gap-1.5 rounded-control px-1 py-0.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
-                            aria-haspopup="dialog"
-                            aria-label="{{ $this->badgeLabel($account->latestSyncRun) }}"
-                            data-test="last-run-status"
-                        >
-                            @if ($account->latestSyncRun !== null)
-                                <span>{{ __('Last run') }}</span>
-                                <x-imperial.sync-status-badge :status="$account->latestSyncRun->status" />
+                            @if ($verified)
+                                <flux:badge variant="success" size="sm">{{ __('Verified') }}</flux:badge>
                             @else
-                                <span>{{ __('Never synced') }}</span>
-                                <flux:icon.clock variant="mini" class="size-3.5" />
+                                <flux:badge variant="warning" size="sm">{{ __('Not verified') }}</flux:badge>
                             @endif
 
-                            {{-- The chevron swaps for a spinner while the details round-trip runs. --}}
-                            <flux:icon.arrow-path variant="mini" class="size-3.5 animate-spin" wire:loading wire:target="openSyncDetails({{ $account->id }})" data-test="sync-details-loading" />
+                            @if (! $account->enabled)
+                                <flux:badge size="sm">{{ __('Sync paused') }}</flux:badge>
+                            @endif
 
-                            <flux:icon.chevron-right variant="micro" class="size-3 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" wire:loading.remove wire:target="openSyncDetails({{ $account->id }})" />
-                        </button>
-                    </div>
-
-                    <p class="mt-2 text-sm text-ink-secondary">
-                        {{ $this->schemas->labelFor($account->provider_key) }} · {{ $this->credentialSummary($account) }}
-                        @if ($account->last_success_at !== null)
-                            · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
-                        @endif
-                    </p>
-
-                    {{-- Health per capability (docs/design-system.md, Providers) --}}
-                    <div class="mt-3 flex flex-wrap gap-1.5" data-test="capability-health">
-                        @foreach ($capabilityLabels as $value => $label)
-                            @php($state = $account->capabilityStates->firstWhere('capability_key', $value))
-                            <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs
-                                {{ $state === null || ! $state->supported
-                                    ? 'border-line text-ink-muted'
-                                    : ($state->healthy ? 'border-success/40 bg-success/10 text-success' : 'border-attention/40 bg-attention/10 text-attention') }}"
-                                @if ($state?->last_observed_at !== null) title="{{ __('Last observed :at', ['at' => $state->last_observed_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}" @endif
+                            {{-- The last-run status opens the details modal; it is a
+                                 real button so it reads as clickable and works from
+                                 the keyboard (issue #49). --}}
+                            <button
+                                type="button"
+                                wire:click="openSyncDetails({{ $account->id }})"
+                                class="group inline-flex cursor-pointer items-center gap-1.5 rounded-control px-1 py-0.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                                aria-haspopup="dialog"
+                                aria-label="{{ $this->badgeLabel($account->latestSyncRun) }}"
+                                data-test="last-run-status"
                             >
-                                <span class="size-1.5 rounded-full {{ $state === null || ! $state->supported ? 'bg-ink-muted/50' : ($state->healthy ? 'bg-success' : 'bg-attention') }}"></span>
-                                {{ $label }}
-                            </span>
-                        @endforeach
-                    </div>
+                                @if ($account->latestSyncRun !== null)
+                                    <span>{{ __('Last run') }}</span>
+                                    <x-imperial.sync-status-badge :status="$account->latestSyncRun->status" />
+                                @else
+                                    <span>{{ __('Never synced') }}</span>
+                                    <flux:icon.clock variant="mini" class="size-3.5" />
+                                @endif
 
-                    @if ($check !== null)
-                        <p class="mt-2 text-sm" data-test="connection-check">
-                            @if ($check['status'] === ConnectionStatus::Connected->value)
-                                <flux:icon.check-circle variant="mini" class="mr-1 inline size-4 text-success" />
-                            @elseif ($check['status'] === ConnectionStatus::Rejected->value)
-                                <flux:icon.exclamation-triangle variant="mini" class="mr-1 inline size-4 text-danger" />
-                            @else
-                                <flux:icon.clock variant="mini" class="mr-1 inline size-4 text-attention" />
+                                {{-- The chevron swaps for a spinner while the details round-trip runs. --}}
+                                <flux:icon.arrow-path variant="mini" class="size-3.5 animate-spin" wire:loading wire:target="openSyncDetails({{ $account->id }})" data-test="sync-details-loading" />
+
+                                <flux:icon.chevron-right variant="micro" class="size-3 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" wire:loading.remove wire:target="openSyncDetails({{ $account->id }})" />
+                            </button>
+                        </div>
+
+                        <p class="mt-2 text-sm text-ink-secondary">
+                            {{ $this->schemas->labelFor($account->provider_key) }} · {{ $this->credentialSummary($account) }}
+                            @if ($account->last_success_at !== null)
+                                · {{ __('Last successful sync :at', ['at' => $account->last_success_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}
                             @endif
-
-                            {{ $check['message'] }}
                         </p>
-                    @endif
 
-                    <div class="mt-4 flex flex-wrap items-center gap-2">
-                        <flux:button size="sm" wire:click="syncNow({{ $account->id }})">
-                            {{ __('Sync now') }}
-                        </flux:button>
-
-                        <flux:button size="sm" wire:click="testConnection({{ $account->id }})" data-test="test-connection-button">
-                            {{ __('Test connection') }}
-                        </flux:button>
-
-                        <flux:button size="sm" variant="ghost" wire:click="edit({{ $account->id }})">
-                            {{ __('Edit credentials') }}
-                        </flux:button>
-
-                        <flux:button size="sm" variant="ghost" wire:click="toggleEnabled({{ $account->id }})">
-                            {{ $account->enabled ? __('Pause sync') : __('Resume sync') }}
-                        </flux:button>
-
-                        <flux:modal.trigger name="clear-synced-{{ $account->id }}">
-                            <flux:button size="sm" variant="ghost" data-test="clear-synced-button">
-                                {{ __('Clear synced data') }}
-                            </flux:button>
-                        </flux:modal.trigger>
-
-                        <flux:modal.trigger name="delete-provider-{{ $account->id }}">
-                            <flux:button size="sm" variant="danger" data-test="delete-provider-button">
-                                {{ __('Disconnect') }}
-                            </flux:button>
-                        </flux:modal.trigger>
-                    </div>
-                </flux:card>
-
-                <flux:modal name="clear-synced-{{ $account->id }}" class="max-w-lg">
-                    <div class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">{{ __('Clear synced data for :name?', ['name' => $account->display_name]) }}</flux:heading>
-
-                            <flux:subheading>
-                                {{ __('Discovered services, provider charges, and sync history for this account are permanently deleted. Credentials stay. Independent charges you entered by hand are kept. Then you can sync again from a clean slate.') }}
-                            </flux:subheading>
+                        {{-- Health per capability (docs/design-system.md, Providers) --}}
+                        <div class="mt-3 flex flex-wrap gap-1.5" data-test="capability-health">
+                            @foreach ($capabilityLabels as $value => $label)
+                                @php($state = $account->capabilityStates->firstWhere('capability_key', $value))
+                                <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs
+                                    {{ $state === null || ! $state->supported
+                                        ? 'border-line text-ink-muted'
+                                        : ($state->healthy ? 'border-success/40 bg-success/10 text-success' : 'border-attention/40 bg-attention/10 text-attention') }}"
+                                    @if ($state?->last_observed_at !== null) title="{{ __('Last observed :at', ['at' => $state->last_observed_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]) }}" @endif
+                                >
+                                    <span class="size-1.5 rounded-full {{ $state === null || ! $state->supported ? 'bg-ink-muted/50' : ($state->healthy ? 'bg-success' : 'bg-attention') }}"></span>
+                                    {{ $label }}
+                                </span>
+                            @endforeach
                         </div>
 
-                        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-                            <flux:modal.close>
-                                <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                            </flux:modal.close>
+                        @if ($check !== null)
+                            <p class="mt-2 text-sm" data-test="connection-check">
+                                @if ($check['status'] === ConnectionStatus::Connected->value)
+                                    <flux:icon.check-circle variant="mini" class="mr-1 inline size-4 text-success" />
+                                @elseif ($check['status'] === ConnectionStatus::Rejected->value)
+                                    <flux:icon.exclamation-triangle variant="mini" class="mr-1 inline size-4 text-danger" />
+                                @else
+                                    <flux:icon.clock variant="mini" class="mr-1 inline size-4 text-attention" />
+                                @endif
 
-                            <flux:button variant="danger" wire:click="clearSyncedData({{ $account->id }})" data-test="confirm-clear-synced">
-                                {{ __('Clear synced data') }}
+                                {{ $check['message'] }}
+                            </p>
+                        @endif
+
+                        {{-- Everyday controls read as one group. --}}
+                        <div class="mt-4 flex flex-wrap items-center gap-2">
+                            <flux:button size="sm" wire:click="syncNow({{ $account->id }})">
+                                {{ __('Sync now') }}
                             </flux:button>
-                        </div>
-                    </div>
-                </flux:modal>
 
-                <flux:modal name="delete-provider-{{ $account->id }}" class="max-w-lg">
-                    <div class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">{{ __('Disconnect :name?', ['name' => $account->display_name]) }}</flux:heading>
-
-                            <flux:subheading>
-                                {{ __('The stored credentials, discovered services, provider charges, and sync history for this account are permanently deleted. Independent charges you entered by hand are kept.') }}
-                            </flux:subheading>
-                        </div>
-
-                        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-                            <flux:modal.close>
-                                <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                            </flux:modal.close>
-
-                            <flux:button variant="danger" wire:click="deleteAccount({{ $account->id }})">
-                                {{ __('Disconnect account') }}
+                            <flux:button size="sm" wire:click="testConnection({{ $account->id }})" data-test="test-connection-button">
+                                {{ __('Test connection') }}
                             </flux:button>
+
+                            <flux:button size="sm" variant="ghost" wire:click="edit({{ $account->id }})">
+                                {{ __('Edit credentials') }}
+                            </flux:button>
+
+                            <flux:button size="sm" variant="ghost" wire:click="toggleEnabled({{ $account->id }})">
+                                {{ $account->enabled ? __('Pause sync') : __('Resume sync') }}
+                            </flux:button>
+
+                            <flux:modal.trigger name="clear-synced-{{ $account->id }}">
+                                <flux:button size="sm" variant="ghost" data-test="clear-synced-button">
+                                    {{ __('Clear synced data') }}
+                                </flux:button>
+                            </flux:modal.trigger>
                         </div>
-                    </div>
-                </flux:modal>
+
+                        {{-- Destructive zone: quiet danger, right-aligned, and
+                             separated by a rule so Disconnect never sits
+                             shoulder-to-shoulder with Sync or Pause. --}}
+                        <div class="mt-3 flex justify-end border-t border-line pt-3">
+                            <flux:modal.trigger name="delete-provider-{{ $account->id }}">
+                                <button
+                                    type="button"
+                                    class="inline-flex h-8 cursor-pointer items-center rounded-control border border-danger/40 bg-danger/10 px-3 text-sm font-medium text-danger transition-colors hover:bg-danger/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                                    data-test="delete-provider-button"
+                                >
+                                    {{ __('Disconnect') }}
+                                </button>
+                            </flux:modal.trigger>
+                        </div>
+                    </flux:card>
+
+                    <flux:modal name="clear-synced-{{ $account->id }}" class="max-w-lg">
+                        <div class="space-y-6">
+                            <div>
+                                <flux:heading size="lg">{{ __('Clear synced data for :name?', ['name' => $account->display_name]) }}</flux:heading>
+
+                                <flux:subheading>
+                                    {{ __('Discovered services, provider charges, and sync history for this account are permanently deleted. Credentials stay. Independent charges you entered by hand are kept. Then you can sync again from a clean slate.') }}
+                                </flux:subheading>
+                            </div>
+
+                            <div class="flex justify-end space-x-2 rtl:space-x-reverse">
+                                <flux:modal.close>
+                                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                                </flux:modal.close>
+
+                                <flux:button variant="danger" wire:click="clearSyncedData({{ $account->id }})" data-test="confirm-clear-synced">
+                                    {{ __('Clear synced data') }}
+                                </flux:button>
+                            </div>
+                        </div>
+                    </flux:modal>
+
+                    <flux:modal name="delete-provider-{{ $account->id }}" class="max-w-lg">
+                        <div class="space-y-6">
+                            <div>
+                                <flux:heading size="lg">{{ __('Disconnect :name?', ['name' => $account->display_name]) }}</flux:heading>
+
+                                <flux:subheading>
+                                    {{ __('The stored credentials, discovered services, provider charges, and sync history for this account are permanently deleted. Independent charges you entered by hand are kept.') }}
+                                </flux:subheading>
+                            </div>
+
+                            <div class="flex justify-end space-x-2 rtl:space-x-reverse">
+                                <flux:modal.close>
+                                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                                </flux:modal.close>
+
+                                <flux:button variant="danger" wire:click="deleteAccount({{ $account->id }})">
+                                    {{ __('Disconnect account') }}
+                                </flux:button>
+                            </div>
+                        </div>
+                    </flux:modal>
+                </div>
             @endforeach
         </div>
     @endif
