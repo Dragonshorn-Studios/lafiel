@@ -14,7 +14,9 @@ use Carbon\CarbonImmutable;
  * an exact rational per currency and rounded once per row, unknown and
  * stale charges counted rather than hidden, and a package flag when any
  * charge covers more than one service. Source-level detail lives on the
- * service's detail view; the table never sums money by itself.
+ * service's detail view; the table never sums money by itself — the
+ * group headers on the Services view may only add these displayed,
+ * already-rounded row values per currency (see ServiceLedger).
  */
 final readonly class ServiceLedgerRow
 {

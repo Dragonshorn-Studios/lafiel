@@ -69,6 +69,22 @@ new #[Title('Overview')] class extends Component {
     }
 
     /**
+     * Renewal rows with known, positive pricing — the cost signal the
+     * widget is for. Known zeros and unknown-pricing rows stay out of
+     * the Overview but remain on the Renewals page and in coverage.
+     *
+     * @return list<array{name: string, provider: string, amount: Money, renews_at: \Carbon\CarbonImmutable, auto_renew: bool, cost_item: \App\Domain\Costs\Models\CostItem}>
+     */
+    #[Computed]
+    public function pricedUpcomingRenewals(): array
+    {
+        return array_values(array_filter(
+            $this->upcoming->rows,
+            fn (array $row): bool => $row['amount'] !== null && $row['amount']->amountMinor > 0,
+        ));
+    }
+
+    /**
      * Provider accounts whose metered usage cannot be read — fixed
      * subscriptions alone, so their slice of the total is incomplete.
      *
@@ -205,8 +221,8 @@ new #[Title('Overview')] class extends Component {
         <div class="rounded-card border border-line bg-surface p-5">
             <flux:heading>{{ __('Upcoming renewals') }}</flux:heading>
 
-            @if ($this->upcoming->rows === [])
-                <p class="mt-6 text-sm text-ink-secondary">{{ __('No renewals in the next 30 days.') }}</p>
+            @if ($this->pricedUpcomingRenewals === [])
+                <x-imperial.empty-state class="mt-4" :hint="__('No priced renewals in the next 30 days.')"/>
             @else
                 <flux:table class="mt-2">
                     <flux:table.columns>
@@ -217,15 +233,12 @@ new #[Title('Overview')] class extends Component {
                     </flux:table.columns>
 
                     <flux:table.rows>
-                        @foreach ($this->upcoming->rows as $row)
+                        @foreach ($this->pricedUpcomingRenewals as $row)
                             <flux:table.row :key="$row['cost_item']->id">
                                 <flux:table.cell class="font-medium">{{ $row['name'] }}</flux:table.cell>
                                 <flux:table.cell class="text-ink-secondary">{{ $row['provider'] }}</flux:table.cell>
                                 <flux:table.cell class="font-mono tabular-nums">
-                                    {{ $row['amount']?->majorAmount() ?? __('unknown') }}
-                                    @if ($row['amount'] !== null)
-                                        {{ $row['amount']->currency }}
-                                    @endif
+                                    {{ $row['amount']->majorAmount() }} {{ $row['amount']->currency }}
                                 </flux:table.cell>
                                 <flux:table.cell class="font-mono tabular-nums">{{ $row['renews_at']->format('Y-m-d') }}</flux:table.cell>
                             </flux:table.row>

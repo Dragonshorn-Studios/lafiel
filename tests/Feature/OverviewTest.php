@@ -84,6 +84,29 @@ test('the overview lists renewals due within 30 days', function () {
         ->assertSee(__('View all renewals'));
 });
 
+test('the upcoming renewals widget shows only known positive amounts', function () {
+    createManualCost(['name' => 'Priced service', 'renews_at' => now()->addDays(10)]);
+    createManualCost(['name' => 'Free rider', 'amount' => '0.00', 'renews_at' => now()->addDays(12)]);
+    createManualCost(['name' => 'Unknown renewal', 'unknown_amount' => true, 'amount' => null, 'renews_at' => now()->addDays(15)]);
+
+    $this->get(route('overview'))
+        ->assertOk()
+        ->assertSee('Priced service')
+        ->assertDontSee('Free rider')
+        ->assertDontSee('Unknown renewal');
+});
+
+test('the upcoming renewals widget shows the empty state without priced rows', function () {
+    createManualCost(['name' => 'Free rider', 'amount' => '0.00', 'renews_at' => now()->addDays(10)]);
+    createManualCost(['name' => 'Unknown renewal', 'unknown_amount' => true, 'amount' => null, 'renews_at' => now()->addDays(15)]);
+
+    $this->get(route('overview'))
+        ->assertOk()
+        ->assertSee(__('No priced renewals in the next 30 days.'))
+        ->assertDontSee('Free rider')
+        ->assertDontSee('Unknown renewal');
+});
+
 test('the overview groups spend by provider', function () {
     $account = ProviderAccount::factory()->create(['provider_key' => 'ovh', 'display_name' => 'OVHcloud']);
     ProviderCredential::factory()->create(['provider_account_id' => $account->id]);
