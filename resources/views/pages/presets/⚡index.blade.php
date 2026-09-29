@@ -489,23 +489,41 @@ new #[Title('Plans')] class extends Component {
                             @endif
                         </flux:table.cell>
 
+                        {{-- Row actions follow the page chrome: the money
+                             action is primary navy, Edit is a neutral
+                             secondary, and the destructive Archive/Delete
+                             stay quiet danger so they never outshine it. --}}
                         <flux:table.cell>
-                            <flux:button size="xs" wire:click="addAsCost({{ $preset->id }})" data-test="add-as-cost-{{ $preset->id }}">
-                                {{ __('Add as recurring cost') }}
-                            </flux:button>
-                            <flux:button size="xs" wire:click="edit({{ $preset->id }})" data-test="edit-preset-{{ $preset->id }}">{{ __('Edit') }}</flux:button>
-                            @if ($preset->archived_at === null)
-                                <flux:button size="xs" variant="danger" wire:click="archive({{ $preset->id }})" wire:confirm="{{ __('Archive this plan? Existing costs are untouched.') }}" data-test="archive-preset-{{ $preset->id }}">
-                                    {{ __('Archive') }}
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <flux:button size="xs" variant="primary" wire:click="addAsCost({{ $preset->id }})" data-test="add-as-cost-{{ $preset->id }}">
+                                    {{ __('Add as recurring cost') }}
                                 </flux:button>
-                            @else
-                                <flux:button size="xs" wire:click="restore({{ $preset->id }})" data-test="restore-preset-{{ $preset->id }}">{{ __('Restore') }}</flux:button>
-                            @endif
-                            @if ($preset->source === SubscriptionPreset::SOURCE_BUILTIN && $this->catalogInUse)
-                                <flux:button size="xs" variant="danger" wire:click="destroy({{ $preset->id }})" wire:confirm="{{ __('Delete this built-in plan permanently?') }}" data-test="delete-preset-{{ $preset->id }}">
-                                    {{ __('Delete') }}
-                                </flux:button>
-                            @endif
+                                <flux:button size="xs" wire:click="edit({{ $preset->id }})" data-test="edit-preset-{{ $preset->id }}">{{ __('Edit') }}</flux:button>
+                                @if ($preset->archived_at === null)
+                                    <button
+                                        type="button"
+                                        wire:click="archive({{ $preset->id }})"
+                                        wire:confirm="{{ __('Archive this plan? Existing costs are untouched.') }}"
+                                        class="inline-flex h-6 cursor-pointer items-center rounded-control border border-danger/40 bg-danger/10 px-2 text-xs font-medium text-danger transition-colors hover:bg-danger/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                                        data-test="archive-preset-{{ $preset->id }}"
+                                    >
+                                        {{ __('Archive') }}
+                                    </button>
+                                @else
+                                    <flux:button size="xs" wire:click="restore({{ $preset->id }})" data-test="restore-preset-{{ $preset->id }}">{{ __('Restore') }}</flux:button>
+                                @endif
+                                @if ($preset->source === SubscriptionPreset::SOURCE_BUILTIN && $this->catalogInUse)
+                                    <button
+                                        type="button"
+                                        wire:click="destroy({{ $preset->id }})"
+                                        wire:confirm="{{ __('Delete this built-in plan permanently?') }}"
+                                        class="inline-flex h-6 cursor-pointer items-center rounded-control border border-danger/40 bg-danger/10 px-2 text-xs font-medium text-danger transition-colors hover:bg-danger/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                                        data-test="delete-preset-{{ $preset->id }}"
+                                    >
+                                        {{ __('Delete') }}
+                                    </button>
+                                @endif
+                            </div>
                         </flux:table.cell>
                     </flux:table.row>
                 @endforeach
