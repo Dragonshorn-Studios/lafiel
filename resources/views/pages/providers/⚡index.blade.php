@@ -553,8 +553,9 @@ new #[Title('Providers')] class extends Component {
                 {{-- One grid child per account: the card plus its two
                      confirm modals. Bare modals as grid siblings claim
                      cells and stagger the cards into a zig-zag with
-                     holes — the layout bug this wrapper fixes. --}}
-                <div class="min-w-0">
+                     holes — the layout bug this wrapper fixes. The key
+                     keeps morphing tied to the account, not the index. --}}
+                <div wire:key="provider-account-{{ $account->id }}" class="min-w-0">
                     <flux:card class="h-full" data-test="provider-account">
                         <div class="flex flex-wrap items-center gap-2">
                             <flux:heading class="mr-auto">{{ $account->display_name }}</flux:heading>
