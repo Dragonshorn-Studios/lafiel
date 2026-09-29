@@ -168,7 +168,7 @@ References: [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) and 
 
 mikr.us is a Polish low-cost VPS provider with a small, POST-form API at
 [api.mikr.us](https://api.mikr.us/). The account API key is generated
-in the panel at `mikrus/panel/?a=api` and is sent as the `key` form
+in the panel at `mikr.us/panel/?a=api` and is sent as the `key` form
 field and in the Authorization header on every call (the docs sanction
 either; a live Connect answered 400 to the form field alone — issue
 #81 — so both ride along); per-server reads add `srv` (the server's
@@ -203,13 +203,19 @@ follow-up warning.
 
 ### Credentials
 
-One `api_key` (schema version 1, a single password field). 400, 401,
-and 403 reject the key permanently (`InvalidCredentialsException`,
-clearing `verified_at`) — a live Connect showed mikr.us answering a
-filled-but-rejected key with HTTP 400 (issue #81). 429, 5xx,
-unreadable bodies, and connection failures are transient. Failure
-messages carry the request path, the status code, and — because
-mikr.us documents no error format — a capped, whitespace-collapsed
+One `api_key` (schema version 1, a single password field). On the
+account-level `/serwery` calls (credential validation, inventory
+discovery), 400, 401, and 403 reject the key permanently
+(`InvalidCredentialsException`, clearing `verified_at`) — a live
+Connect showed mikr.us answering a filled-but-rejected key with HTTP
+400 (issue #81), and `/serwery` is the only request where the key is
+the sole variable. On per-server `/info` calls only 401/403 reject;
+a 400 there is generic (a stale `srv`, most plausibly) and transient,
+so one odd server degrades the batch instead of rejecting healthy
+credentials. 429, 5xx, unreadable bodies, and connection failures are
+transient everywhere. Failure messages carry the request path and the
+status code — and, except for rate limits, because mikr.us documents
+no error format, a capped, control-byte-stripped, whitespace-collapsed
 excerpt of the API's own error body with the API key scrubbed; never
 other payload or credential material.
 
