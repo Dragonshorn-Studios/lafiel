@@ -150,3 +150,74 @@ test('the renewals view lists provider and source amount', function () {
         ->assertSee('49.00')
         ->assertSee(__('unknown'));
 });
+
+test('the services view groups same-name rows under one header with the summed monthly', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $domain = Service::factory()->discovered($account)->create(['name' => 'example.com']);
+    $email = Service::factory()->discovered($account)->create(['name' => 'example.com']);
+    $vps = Service::factory()->discovered($account)->create(['name' => 'vps-main']);
+
+    CostItem::factory()->create(['amount_minor' => 4900, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($domain->id);
+    CostItem::factory()->create(['amount_minor' => 1500, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($email->id);
+    CostItem::factory()->create(['amount_minor' => 2000, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($vps->id);
+
+    $groups = Livewire::test('pages::costs.index')->get('groupedRows');
+
+    expect($groups)->toHaveCount(2)
+        ->and($groups[0]['label'])->toBe('example.com')
+        ->and($groups[0]['provider'])->toBe('OVHcloud')
+        ->and($groups[0]['monthly'])->toBe('64.00 PLN/mo')
+        ->and(count($groups[0]['rows']))->toBe(2)
+        ->and($groups[1]['label'])->toBe('vps-main')
+        ->and($groups[1]['monthly'])->toBe('20.00 PLN/mo');
+
+    $this->get(route('costs.index'))
+        ->assertOk()
+        ->assertSee('64.00 PLN/mo');
+});
+
+test('the same name under different providers stays in separate groups', function () {
+    $ovh = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $mikrus = ProviderAccount::factory()->create(['provider_key' => 'mikrus', 'display_name' => 'Mikr.us']);
+
+    $ovhService = Service::factory()->discovered($ovh)->create(['name' => 'example.com']);
+    $mikrusService = Service::factory()->discovered($mikrus)->create(['name' => 'example.com']);
+
+    CostItem::factory()->create(['amount_minor' => 4900, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($ovhService->id);
+    CostItem::factory()->create(['amount_minor' => 1500, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($mikrusService->id);
+
+    $groups = Livewire::test('pages::costs.index')->get('groupedRows');
+
+    expect($groups)->toHaveCount(2)
+        ->and($groups[0]['label'])->toBe('example.com')
+        ->and($groups[0]['provider'])->toBe('OVHcloud')
+        ->and($groups[1]['label'])->toBe('example.com')
+        ->and($groups[1]['provider'])->toBe('Mikr.us');
+});
+
+test('the services view buckets uuid-like names together, collapsed by default', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $dashed = Service::factory()->discovered($account)->create(['name' => 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d']);
+    $contiguous = Service::factory()->discovered($account)->create(['name' => '0f1e2d3c4b5a69788796a5b4c3d2e1f0']);
+    $named = Service::factory()->discovered($account)->create(['name' => 'vps-main']);
+
+    CostItem::factory()->create(['amount_minor' => 100, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($dashed->id);
+    CostItem::factory()->create(['amount_minor' => 200, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($contiguous->id);
+    CostItem::factory()->create(['amount_minor' => 2000, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($named->id);
+
+    $component = Livewire::test('pages::costs.index');
+    $groups = $component->get('groupedRows');
+
+    expect($groups)->toHaveCount(2)
+        ->and($groups[0]['label'])->toBe('vps-main')
+        ->and($groups[1]['unlabeled'])->toBeTrue()
+        ->and(count($groups[1]['rows']))->toBe(2);
+
+    // The UUID names also feed the form panel's overlay select, so the
+    // collapsed state is asserted through the child rows' detail links.
+    $component->assertSee(__('Unlabeled / other'))
+        ->assertDontSee('/services/'.$dashed->id)
+        ->set('unlabeledOpen', true)
+        ->assertSee('/services/'.$dashed->id)
+        ->assertSee('/services/'.$contiguous->id);
+});

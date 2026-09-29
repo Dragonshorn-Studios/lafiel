@@ -7,6 +7,7 @@ use App\Domain\Costs\Enums\Period;
 use App\Domain\Costs\Models\CostItem;
 use App\Domain\Costs\Models\SubscriptionPreset;
 use App\Domain\Inventory\Models\Service;
+use App\Domain\Support\ValueObjects\Money;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Support\Collection;
@@ -16,6 +17,9 @@ use Livewire\Component;
 
 new #[Title('Services')] class extends Component {
     public bool $hideZeroCost = true;
+
+    /** Whether the Unlabeled / other bucket's rows are expanded. */
+    public bool $unlabeledOpen = false;
 
     public ?int $presetId = null;
 
@@ -104,6 +108,64 @@ new #[Title('Services')] class extends Component {
         }
 
         return $rows;
+    }
+
+    /**
+     * The table rows grouped for display: an exact provider + display
+     * name pair collapses into one group, and empty or UUID-looking
+     * names share a single Unlabeled / other bucket rendered last and
+     * collapsed by default. A group's monthly total only adds what the
+     * table already shows — the per-row rounded monthly equivalents,
+     * summed per currency and never converted. The ledger rows and the
+     * database stay untouched; this is presentation only.
+     *
+     * @return list<array{key: string, label: string, provider: string, unlabeled: bool, rows: list<\App\Domain\Inventory\ServiceLedgerRow>, monthly: string}>
+     */
+    #[Computed]
+    public function groupedRows(): array
+    {
+        $groups = [];
+
+        foreach ($this->rows as $row) {
+            $name = trim($row->service->name);
+
+            if ($name === '' || $this->looksLikeGeneratedName($name)) {
+                $group = &$groups['unlabeled'];
+                $group ??= ['key' => 'unlabeled', 'label' => __('Unlabeled / other'), 'provider' => '', 'unlabeled' => true, 'rows' => [], 'monthly' => []];
+            } else {
+                $key = $row->provider."\x00".$name;
+                $group = &$groups[$key];
+                $group ??= ['key' => $key, 'label' => $name, 'provider' => $row->provider, 'unlabeled' => false, 'rows' => [], 'monthly' => []];
+            }
+
+            if ($row->monthlyMinor !== null && $row->monthlyCurrency !== null) {
+                $group['monthly'][$row->monthlyCurrency] = ($group['monthly'][$row->monthlyCurrency] ?? 0) + $row->monthlyMinor;
+            }
+
+            $group['rows'][] = $row;
+            unset($group);
+        }
+
+        // Named groups render in ledger order; the noise bucket goes last.
+        $unlabeled = $groups['unlabeled'] ?? null;
+        unset($groups['unlabeled']);
+        $groups = array_values($groups);
+
+        if ($unlabeled !== null) {
+            $groups[] = $unlabeled;
+        }
+
+        foreach ($groups as &$group) {
+            $parts = [];
+
+            foreach ($group['monthly'] as $currency => $minor) {
+                $parts[] = Money::ofMinor($minor, $currency)->majorAmount().' '.$currency;
+            }
+
+            $group['monthly'] = $parts === [] ? '' : implode(' + ', $parts).'/mo';
+        }
+
+        return $groups;
     }
 
     #[Computed]
@@ -283,6 +345,15 @@ new #[Title('Services')] class extends Component {
         return \App\Domain\Support\ValueObjects\Money::ofMinor((int) $row->monthlyMinor, (string) $row->monthlyCurrency)->majorAmount();
     }
 
+    /**
+     * A machine-generated identity (a dashed or contiguous UUID) rather
+     * than a display name someone would recognize.
+     */
+    private function looksLikeGeneratedName(string $name): bool
+    {
+        return (bool) preg_match('/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i', $name);
+    }
+
     private function priceChanged(): bool
     {
         if ($this->unknownAmount) {
@@ -328,82 +399,115 @@ new #[Title('Services')] class extends Component {
         </flux:table.columns>
 
         <flux:table.rows>
-            @foreach ($this->rows as $row)
-                <flux:table.row :key="$row->service->id">
-                    <flux:table.cell>{{ $row->provider }}</flux:table.cell>
-
-                    <flux:table.cell>
-                        <flux:link :href="route('services.show', $row->service)" wire:navigate class="font-medium">
-                            {{ $row->service->name }}
-                        </flux:link>
-                        <span class="flex flex-wrap gap-1 pt-1">
-                            @if ($row->package)
-                                <flux:badge size="sm" variant="info">{{ __('package') }}</flux:badge>
+            @foreach ($this->groupedRows as $group)
+                {{-- Group header: display name + provider, with the monthly
+                     sum of what the children already show (per currency). --}}
+                <flux:table.row :key="'group-'.$loop->index" class="bg-surface-subtle">
+                    <flux:table.cell colspan="9">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            @if ($group['unlabeled'])
+                                <button
+                                    type="button"
+                                    wire:click="$toggle('unlabeledOpen')"
+                                    class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-ink-secondary transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                                    aria-expanded="{{ $unlabeledOpen ? 'true' : 'false' }}"
+                                    data-test="unlabeled-toggle"
+                                >
+                                    <flux:icon.chevron-right variant="micro" class="size-3 transition-transform {{ $unlabeledOpen ? 'rotate-90' : '' }} rtl:rotate-180" />
+                                    {{ $group['label'] }}
+                                    <span class="font-mono text-xs font-normal text-ink-muted">{{ count($group['rows']) }}</span>
+                                </button>
+                            @else
+                                <span class="text-sm font-semibold text-ink">{{ $group['label'] }}</span>
+                                <span class="text-sm text-ink-secondary">· {{ $group['provider'] }}</span>
                             @endif
-                            @if ($row->unknownCount > 0)
-                                <flux:badge size="sm">{{ __(':n unknown', ['n' => $row->unknownCount]) }}</flux:badge>
+
+                            @if ($group['monthly'] !== '')
+                                <span class="font-mono text-sm font-semibold tabular-nums text-ink">{{ $group['monthly'] }}</span>
                             @endif
-                            @if ($row->staleCount > 0)
-                                <flux:badge size="sm" variant="warning">{{ __('stale') }}</flux:badge>
-                            @endif
-                        </span>
-                    </flux:table.cell>
-
-                    <flux:table.cell>{{ $row->service->category }}</flux:table.cell>
-
-                    <flux:table.cell>
-                        {{ $row->billing ?? '—' }}
-                        @if ($row->chargeCount > 1)
-                            <span class="block text-xs text-ink-muted">{{ __(':n charges', ['n' => $row->chargeCount]) }}</span>
-                        @endif
-                    </flux:table.cell>
-
-                    <flux:table.cell class="font-mono tabular-nums">
-                        @if ($row->sourceAmount === null)
-                            {{ __('unknown') }}
-                        @else
-                            {{ $row->sourceAmount->majorAmount() }} {{ $row->sourceAmount->currency }}
-                        @endif
-                    </flux:table.cell>
-
-                    <flux:table.cell class="font-mono tabular-nums">
-                        @if ($row->monthlyMinor === null)
-                            {{ __('unknown') }}
-                        @else
-                            {{ $this->major($row) }} {{ $row->monthlyCurrency }}
-                        @endif
-                    </flux:table.cell>
-
-                    <flux:table.cell class="font-mono tabular-nums">
-                        @if ($row->renewsAt !== null)
-                            {{ $row->renewsAt->format('Y-m-d') }}
-                            {{ $row->autoRenew ? __('(auto)') : '' }}
-                        @else
-                            —
-                        @endif
-                    </flux:table.cell>
-
-                    <flux:table.cell>
-                        @if ($row->freshness() === 'stale')
-                            <flux:badge size="sm" variant="warning">{{ __('Stale') }}</flux:badge>
-                        @elseif ($row->freshness() === 'manual')
-                            {{ __('Manual') }}
-                        @else
-                            {{ __('Synced') }}
-                        @endif
-                    </flux:table.cell>
-
-                    <flux:table.cell>
-                        @if ($row->manualChargeId !== null)
-                            <flux:button size="xs" wire:click="edit({{ $row->manualChargeId }})">{{ __('Edit') }}</flux:button>
-                            <flux:button size="xs" variant="danger" wire:click="end({{ $row->manualChargeId }})" wire:confirm="{{ __('End this cost?') }}">
-                                {{ __('End') }}
-                            </flux:button>
-                        @else
-                            <flux:link :href="route('services.show', $row->service)" wire:navigate size="sm">{{ __('Details') }}</flux:link>
-                        @endif
+                        </div>
                     </flux:table.cell>
                 </flux:table.row>
+
+                @if (! $group['unlabeled'] || $unlabeledOpen)
+                    @foreach ($group['rows'] as $row)
+                        <flux:table.row :key="$row->service->id">
+                        <flux:table.cell>{{ $row->provider }}</flux:table.cell>
+
+                        <flux:table.cell>
+                            <flux:link :href="route('services.show', $row->service)" wire:navigate class="font-medium">
+                                {{ $row->service->name }}
+                            </flux:link>
+                            <span class="flex flex-wrap gap-1 pt-1">
+                                @if ($row->package)
+                                    <flux:badge size="sm" variant="info">{{ __('package') }}</flux:badge>
+                                @endif
+                                @if ($row->unknownCount > 0)
+                                    <flux:badge size="sm">{{ __(':n unknown', ['n' => $row->unknownCount]) }}</flux:badge>
+                                @endif
+                                @if ($row->staleCount > 0)
+                                    <flux:badge size="sm" variant="warning">{{ __('stale') }}</flux:badge>
+                                @endif
+                            </span>
+                        </flux:table.cell>
+
+                        <flux:table.cell>{{ $row->service->category }}</flux:table.cell>
+
+                        <flux:table.cell>
+                            {{ $row->billing ?? '—' }}
+                            @if ($row->chargeCount > 1)
+                                <span class="block text-xs text-ink-muted">{{ __(':n charges', ['n' => $row->chargeCount]) }}</span>
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell class="font-mono tabular-nums">
+                            @if ($row->sourceAmount === null)
+                                {{ __('unknown') }}
+                            @else
+                                {{ $row->sourceAmount->majorAmount() }} {{ $row->sourceAmount->currency }}
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell class="font-mono tabular-nums">
+                            @if ($row->monthlyMinor === null)
+                                {{ __('unknown') }}
+                            @else
+                                {{ $this->major($row) }} {{ $row->monthlyCurrency }}
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell class="font-mono tabular-nums">
+                            @if ($row->renewsAt !== null)
+                                {{ $row->renewsAt->format('Y-m-d') }}
+                                {{ $row->autoRenew ? __('(auto)') : '' }}
+                            @else
+                                —
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            @if ($row->freshness() === 'stale')
+                                <flux:badge size="sm" variant="warning">{{ __('Stale') }}</flux:badge>
+                            @elseif ($row->freshness() === 'manual')
+                                {{ __('Manual') }}
+                            @else
+                                {{ __('Synced') }}
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            @if ($row->manualChargeId !== null)
+                                <flux:button size="xs" wire:click="edit({{ $row->manualChargeId }})">{{ __('Edit') }}</flux:button>
+                                <flux:button size="xs" variant="danger" wire:click="end({{ $row->manualChargeId }})" wire:confirm="{{ __('End this cost?') }}">
+                                    {{ __('End') }}
+                                </flux:button>
+                            @else
+                                <flux:link :href="route('services.show', $row->service)" wire:navigate size="sm">{{ __('Details') }}</flux:link>
+                            @endif
+                        </flux:table.cell>
+                    </flux:table.row>
+                    @endforeach
+                @endif
             @endforeach
         </flux:table.rows>
     </flux:table>
