@@ -116,8 +116,15 @@ new #[Title('Services')] class extends Component {
      * names share a single Unlabeled / other bucket rendered last and
      * collapsed by default. A group's monthly total only adds what the
      * table already shows — the per-row rounded monthly equivalents,
-     * summed per currency and never converted. The ledger rows and the
-     * database stay untouched; this is presentation only.
+     * summed per currency and never converted. That is the one
+     * sanctioned exception to the read model's "the table never sums
+     * money by itself" invariant (carved out on ServiceLedger): the
+     * header re-adds displayed values for presentation, it never
+     * derives an equivalent. A package charge covering several
+     * same-named services is therefore counted once per child row, so
+     * a header can exceed the charge's real amount — the rows carry
+     * the package badge. The ledger rows and the database stay
+     * untouched; this is presentation only.
      *
      * @return list<array{key: string, label: string, provider: string, unlabeled: bool, rows: list<\App\Domain\Inventory\ServiceLedgerRow>, monthly: string}>
      */

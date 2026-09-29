@@ -186,13 +186,13 @@ test('the same name under different providers stays in separate groups', functio
     CostItem::factory()->create(['amount_minor' => 4900, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($ovhService->id);
     CostItem::factory()->create(['amount_minor' => 1500, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($mikrusService->id);
 
-    $groups = Livewire::test('pages::costs.index')->get('groupedRows');
+    $groups = collect(Livewire::test('pages::costs.index')->get('groupedRows'));
 
+    // Two equal-name rows have no SQL-guaranteed relative order, so
+    // the assertion is order-insensitive on purpose.
     expect($groups)->toHaveCount(2)
-        ->and($groups[0]['label'])->toBe('example.com')
-        ->and($groups[0]['provider'])->toBe('OVHcloud')
-        ->and($groups[1]['label'])->toBe('example.com')
-        ->and($groups[1]['provider'])->toBe('Mikr.us');
+        ->and($groups->pluck('label'))->each->toBe('example.com')
+        ->and($groups->pluck('provider')->sort()->values()->all())->toBe(['Mikr.us', 'OVHcloud']);
 });
 
 test('the services view buckets uuid-like names together, collapsed by default', function () {
@@ -215,9 +215,84 @@ test('the services view buckets uuid-like names together, collapsed by default',
 
     // The UUID names also feed the form panel's overlay select, so the
     // collapsed state is asserted through the child rows' detail links.
+    // The toggle itself is Livewire's framework-handled magic action —
+    // the test harness cannot call `$toggle` directly, so the state
+    // change it performs is driven via the property.
     $component->assertSee(__('Unlabeled / other'))
         ->assertDontSee('/services/'.$dashed->id)
         ->set('unlabeledOpen', true)
         ->assertSee('/services/'.$dashed->id)
         ->assertSee('/services/'.$contiguous->id);
+});
+
+test('the services view sums mixed-currency groups per currency without converting', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $first = Service::factory()->discovered($account)->create(['name' => 'example.com']);
+    $second = Service::factory()->discovered($account)->create(['name' => 'example.com']);
+
+    CostItem::factory()->create(['amount_minor' => 300, 'currency' => 'EUR', 'observed_at' => now()])->services()->attach($first->id);
+    CostItem::factory()->create(['amount_minor' => 200, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($second->id);
+
+    $groups = collect(Livewire::test('pages::costs.index')->get('groupedRows'));
+
+    expect($groups)->toHaveCount(1)
+        ->and($groups[0]['monthly'])->toContain('3.00 EUR')
+        ->and($groups[0]['monthly'])->toContain('2.00 PLN')
+        ->and($groups[0]['monthly'])->toContain(' + ')
+        ->and($groups[0]['monthly'])->toEndWith('/mo');
+});
+
+test('empty display names share the unlabeled bucket with uuid-like names', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $empty = Service::factory()->discovered($account)->create(['name' => '']);
+    $uuid = Service::factory()->discovered($account)->create(['name' => 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d']);
+
+    CostItem::factory()->create(['amount_minor' => 100, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($empty->id);
+    CostItem::factory()->create(['amount_minor' => 200, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($uuid->id);
+
+    $groups = collect(Livewire::test('pages::costs.index')->get('groupedRows'));
+
+    expect($groups)->toHaveCount(1)
+        ->and($groups[0]['unlabeled'])->toBeTrue()
+        ->and(count($groups[0]['rows']))->toBe(2);
+});
+
+test('a group of unknown-priced charges renders a header without a total', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $first = Service::factory()->discovered($account)->create(['name' => 'mystery box']);
+    $second = Service::factory()->discovered($account)->create(['name' => 'mystery box']);
+
+    CostItem::factory()->unknownAmount()->create(['observed_at' => now()])->services()->attach($first->id);
+    CostItem::factory()->unknownAmount()->create(['observed_at' => now()])->services()->attach($second->id);
+
+    $groups = collect(Livewire::test('pages::costs.index')->get('groupedRows'));
+
+    expect($groups)->toHaveCount(1)
+        ->and($groups[0]['label'])->toBe('mystery box')
+        ->and($groups[0]['monthly'])->toBe('');
+
+    $this->get(route('costs.index'))
+        ->assertOk()
+        ->assertSee('mystery box');
+});
+
+test('the zero filter removes a group whose only row is free', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $free = Service::factory()->discovered($account)->create(['name' => 'freebie']);
+    $priced = Service::factory()->discovered($account)->create(['name' => 'vps-main']);
+
+    CostItem::factory()->create(['amount_minor' => 0, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($free->id);
+    CostItem::factory()->create(['amount_minor' => 2000, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($priced->id);
+
+    // Default hideZeroCost=true: the free-only group vanishes entirely.
+    $groups = collect(Livewire::test('pages::costs.index')->get('groupedRows'));
+
+    expect($groups)->toHaveCount(1)
+        ->and($groups[0]['label'])->toBe('vps-main');
+
+    $component = Livewire::test('pages::costs.index')->set('hideZeroCost', false);
+    $allGroups = collect($component->get('groupedRows'));
+
+    expect($allGroups)->toHaveCount(2)
+        ->and($allGroups->pluck('label')->sort()->values()->all())->toBe(['freebie', 'vps-main']);
 });
