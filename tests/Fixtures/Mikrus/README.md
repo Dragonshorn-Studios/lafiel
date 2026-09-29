@@ -15,7 +15,8 @@ POST /serwery          (key) → list of servers: name (stable server id),
                               proto, ip, optional virtualization
 POST /info             (key, srv) → one server: name, expire, pro,
                               cytrus_expire, storage_expire, uptime
-auth: form field `key` on every call; bad key → HTTP 401/403
+auth: form field `key` and the Authorization header on every call;
+      bad key → HTTP 400 (observed live, issue #81; 401/403 also mapped)
 ```
 
 `expire`/`cytrus_expire`/`storage_expire` are assumed to be unix

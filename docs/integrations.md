@@ -168,11 +168,13 @@ References: [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud) and 
 
 mikr.us is a Polish low-cost VPS provider with a small, POST-form API at
 [api.mikr.us](https://api.mikr.us/). The account API key is generated
-in the panel at `mikr.us/panel/?a=api` and is sent as the `key` form
-field on every call; per-server reads add `srv` (the server's stable
-name, e.g. `emil100`). The API is aggressively cached server-side (60s),
-so a sync makes one `/serwery` call plus one `/info` call per server and
-nothing else.
+in the panel at `mikrus/panel/?a=api` and is sent as the `key` form
+field and in the Authorization header on every call (the docs sanction
+either; a live Connect answered 400 to the form field alone — issue
+#81 — so both ride along); per-server reads add `srv` (the server's
+stable name, e.g. `emil100`). The API is aggressively cached
+server-side (60s), so a sync makes one `/serwery` call plus one
+`/info` call per server and nothing else.
 
 ### Capabilities
 
@@ -201,10 +203,15 @@ follow-up warning.
 
 ### Credentials
 
-One `api_key` (schema version 1, a single password field). 401/403
-reject the key permanently (`InvalidCredentialsException`, clearing
-`verified_at`); 429, 5xx, unreadable bodies, and connection failures
-are transient. Messages carry only the request path and status code.
+One `api_key` (schema version 1, a single password field). 400, 401,
+and 403 reject the key permanently (`InvalidCredentialsException`,
+clearing `verified_at`) — a live Connect showed mikr.us answering a
+filled-but-rejected key with HTTP 400 (issue #81). 429, 5xx,
+unreadable bodies, and connection failures are transient. Failure
+messages carry the request path, the status code, and — because
+mikr.us documents no error format — a capped, whitespace-collapsed
+excerpt of the API's own error body with the API key scrubbed; never
+other payload or credential material.
 
 ### Implementation (adapter `mikrus`, issue #69)
 
@@ -223,8 +230,9 @@ The fixture shapes are assumptions from the public API page and the
 community CLI. Before trusting metadata or error mapping in anger:
 regenerate `tests/Fixtures/Mikrus/` from a real read-only account
 (one `/serwery` + per-server `/info` capture), confirm the bad-key
-status code (401 vs 403 vs something else), and confirm
-`expire`/`pro` field names and types.
+status code (observed live as 400, issue #81; verify it is stable)
+and the error body's shape, and confirm `expire`/`pro` field names
+and types.
 
 ## RackNerd — manual only
 

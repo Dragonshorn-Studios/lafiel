@@ -23,6 +23,7 @@ it('sends the api key as a form field on every call', function () {
 
     Http::assertSentCount(2);
     Http::assertSent(fn ($request) => $request['key'] === mikrusPayload()['api_key']
+        && $request->hasHeader('Authorization', mikrusPayload()['api_key'])
         && isset($request['srv']) && $request['srv'] === 'emil100');
 });
 
@@ -35,7 +36,44 @@ it('maps rejected keys to invalid credentials', function (int $status) {
     $api = new HttpMikrusApi(mikrusPayload()['api_key']);
 
     $api->post('/serwery');
-})->with([[401], [403]])->throws(InvalidCredentialsException::class);
+})->with([[400], [401], [403]])->throws(InvalidCredentialsException::class);
+
+it('surfaces the api error body on a rejected key without leaking the key', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'api.mikr.us/*' => Http::response(
+            '{"error":"Invalid API key '.mikrusPayload()['api_key'].'"}',
+            400,
+        ),
+    ]);
+
+    $api = new HttpMikrusApi(mikrusPayload()['api_key']);
+
+    try {
+        $api->post('/serwery');
+        $this->fail('Expected an InvalidCredentialsException.');
+    } catch (InvalidCredentialsException $exception) {
+        expect($exception->getMessage())->toContain('(HTTP 400): {"error":"Invalid API key [redacted]"}')
+            ->and($exception->getMessage())->not->toContain(mikrusPayload()['api_key']);
+    }
+});
+
+it('surfaces a capped api error body on server failures', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'api.mikr.us/*' => Http::response(str_repeat('x', 300), 500),
+    ]);
+
+    $api = new HttpMikrusApi(mikrusPayload()['api_key']);
+
+    try {
+        $api->post('/serwery');
+        $this->fail('Expected a TransientProviderException.');
+    } catch (TransientProviderException $exception) {
+        expect($exception->getMessage())
+            ->toBe('Mikr.us API request failed for [/serwery] (HTTP 500): '.str_repeat('x', 120).'...');
+    }
+});
 
 it('maps rate limits and server failures to transient', function (int $status) {
     Http::preventStrayRequests();
