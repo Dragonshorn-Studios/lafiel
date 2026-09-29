@@ -16,13 +16,18 @@ use Illuminate\Support\Str;
  * sanction either, and a live Connect answered 400 to the form field
  * alone, so both ride along. `srv` rides only on per-server reads.
  * HTTP failures become the typed provider exceptions with sanitized
- * messages: 400, 401, and 403 mean the key was rejected and are never
- * retried (mikr.us answers a bad key with 400 plus an explanatory
- * body, undocumented); 429, 5xx, and connection failures are
- * transient. mikr.us documents no error format, so failure messages
- * may append a short excerpt of the API's own error body —
- * whitespace-collapsed, length-capped, and with the API key scrubbed —
- * never other payload or credential material.
+ * messages. On the account-level `/serwery` calls (credential
+ * validation and inventory discovery) 400, 401, and 403 mean the key
+ * was rejected and are never retried — a live Connect answered a bad
+ * key with 400 plus an explanatory body; on per-server `/info` calls
+ * only 401/403 reject, because 400 is a generic client-error status
+ * there (a stale `srv`, most plausibly) and one odd server must
+ * degrade the batch rather than reject healthy credentials. 429, 5xx,
+ * and connection failures are transient everywhere. mikr.us documents
+ * no error format, so failure messages other than rate limits may
+ * append a short excerpt of the API's own error body — control bytes
+ * stripped, whitespace-collapsed, length-capped, and with the API key
+ * scrubbed — never other payload or credential material.
  */
 final class HttpMikrusApi implements MikrusApi
 {
@@ -39,7 +44,11 @@ final class HttpMikrusApi implements MikrusApi
         $status = $response->status();
         $excerpt = $this->errorExcerpt($response);
 
-        if (in_array($status, [400, 401, 403], true)) {
+        // A 400 is key-specific only where the key is the only variable
+        // in play: the account listing. Anywhere else the request
+        // carries per-server parameters, so a 400 is treated like any
+        // other generic failure — transient, degrading, not rejecting.
+        if (in_array($status, [401, 403], true) || ($status === 400 && $path === '/serwery')) {
             throw new InvalidCredentialsException(
                 "Mikr.us rejected the API key for [{$path}] (HTTP {$status})".($excerpt === '' ? '.' : $excerpt)
             );
@@ -86,7 +95,9 @@ final class HttpMikrusApi implements MikrusApi
      * A sanitized "excerpt" suffix for failure messages, or an empty
      * string when the body carries nothing readable. The API key is
      * scrubbed first (a provider that echoes the request would
-     * otherwise leak it), then whitespace collapses and the length is
+     * otherwise leak it), control bytes are dropped and whitespace
+     * collapses (an excerpt rides into stored summaries and log
+     * context, so ANSI escapes must not survive), and the length is
      * capped so a hostile or HTML-heavy body cannot flood the message.
      */
     private function errorExcerpt(Response $response): string
@@ -99,6 +110,7 @@ final class HttpMikrusApi implements MikrusApi
 
         $body = str_replace($this->apiKey, '[redacted]', $body);
         $body = preg_replace('/\s+/u', ' ', $body) ?? $body;
+        $body = preg_replace('/[[:cntrl:]]/u', '', $body) ?? $body;
 
         return ': '.Str::limit($body, self::EXCERPT_LIMIT);
     }
