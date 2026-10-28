@@ -10,29 +10,37 @@ uses(TestCase::class);
 
 it('labels and summarizes the schema without echoing secrets', function () {
     expect(MikrusCredentialSchema::label())->toBe('Mikr.us')
-        ->and(MikrusCredentialSchema::summary(MikrusCredentialSchema::payload(['api_key' => ' MIKKEY123 '])))
-        ->toBe('API key')
+        ->and(MikrusCredentialSchema::summary(MikrusCredentialSchema::payload([
+            'api_key' => ' MIKKEY123 ',
+            'default_server' => ' emil100 ',
+        ])))->toBe('API key · default server emil100')
+        ->and(MikrusCredentialSchema::summary(['api_key' => 'MIKKEY123']))->toBe('API key')
         ->and(MikrusCredentialSchema::summary([]))->toBe('API key');
 });
 
-it('trims the key into the stored payload', function () {
-    $payload = MikrusCredentialSchema::payload(['api_key' => '  MIKKEY123  ']);
+it('trims the key and the default server into the stored payload', function () {
+    $payload = MikrusCredentialSchema::payload([
+        'api_key' => '  MIKKEY123  ',
+        'default_server' => '  emil100  ',
+    ]);
 
-    expect($payload)->toBe(['api_key' => 'MIKKEY123']);
+    expect($payload)->toBe(['api_key' => 'MIKKEY123', 'default_server' => 'emil100']);
 });
 
 it('validates the payload shape', function () {
-    MikrusCredentialSchema::assertValid(['api_key' => 'MIKKEY123']);
+    MikrusCredentialSchema::assertValid(['api_key' => 'MIKKEY123', 'default_server' => 'emil100']);
 
-    MikrusCredentialSchema::assertValid([]);
+    MikrusCredentialSchema::assertValid(['api_key' => 'MIKKEY123']);
 })->throws(ValidationException::class);
 
 it('lists exactly one secret field', function () {
     $fields = MikrusCredentialSchema::fields();
 
-    expect(count($fields))->toBe(1)
+    expect(count($fields))->toBe(2)
         ->and($fields[0]->name)->toBe('api_key')
-        ->and($fields[0]->isSecret())->toBeTrue();
+        ->and($fields[0]->isSecret())->toBeTrue()
+        ->and($fields[1]->name)->toBe('default_server')
+        ->and($fields[1]->isSecret())->toBeFalse();
 });
 
 it('maps an at-rest schema mismatch to invalid credentials naming the field', function () {
@@ -41,6 +49,8 @@ it('maps an at-rest schema mismatch to invalid credentials naming the field', fu
         $this->fail('Expected InvalidCredentialsException.');
     } catch (InvalidCredentialsException $exception) {
         expect($exception->getMessage())->toContain('api_key')
+            ->and($exception->getMessage())->toContain('default_server')
+            ->and($exception->getMessage())->toContain((string) MikrusCredentialSchema::SCHEMA_VERSION)
             ->and($exception->getPrevious())->toBeInstanceOf(ValidationException::class);
     }
 });

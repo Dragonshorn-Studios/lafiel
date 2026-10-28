@@ -11,6 +11,7 @@ use App\Domain\Providers\AdapterRegistry;
 use App\Domain\Providers\Exceptions\TransientProviderException;
 use App\Domain\Providers\Mikrus\BuildMikrusApi;
 use App\Domain\Providers\Mikrus\MikrusApi;
+use App\Domain\Providers\Mikrus\MikrusCredentialSchema;
 use App\Domain\Providers\Mikrus\MikrusProviderAdapter;
 use App\Domain\Providers\Models\ProviderAccount;
 use App\Domain\Providers\Models\ProviderCredential;
@@ -223,6 +224,7 @@ it('connects a mikr.us account through the provider select without echoing the k
         ->set('providerKey', 'mikrus')
         ->set('displayName', 'Mikr.us Main')
         ->set('credential.api_key', mikrusPayload()['api_key'])
+        ->set('credential.default_server', mikrusPayload()['default_server'])
         ->call('connect');
 
     $component->assertHasNoErrors();
@@ -232,5 +234,13 @@ it('connects a mikr.us account through the provider select without echoing the k
         'display_name' => 'Mikr.us Main',
     ]);
 
-    expect($component->html())->not->toContain(mikrusPayload()['api_key']);
+    $credential = ProviderCredential::query()->latest('id')->firstOrFail();
+
+    expect($credential->schema_version)->toBe(MikrusCredentialSchema::SCHEMA_VERSION)
+        ->and($credential->payload['default_server'])->toBe(mikrusPayload()['default_server']);
+
+    // The default server is not a secret: it renders back on edit while
+    // the key never appears anywhere.
+    expect($component->html())->toContain(mikrusPayload()['default_server'])
+        ->and($component->html())->not->toContain(mikrusPayload()['api_key']);
 });

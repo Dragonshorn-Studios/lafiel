@@ -28,6 +28,6 @@ class BuildMikrusApi
             throw new InvalidCredentialsException('Stored mikr.us credential payload does not match schema version '.MikrusCredentialSchema::SCHEMA_VERSION." (failing fields: {$fields}).", previous: $exception);
         }
 
-        return new HttpMikrusApi((string) $payload['api_key']);
+        return new HttpMikrusApi((string) $payload['api_key'], (string) $payload['default_server']);
     }
 }

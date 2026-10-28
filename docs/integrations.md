@@ -171,8 +171,11 @@ mikr.us is a Polish low-cost VPS provider with a small, POST-form API at
 in the panel at `mikr.us/panel/?a=api` and is sent as the `key` form
 field and in the Authorization header on every call (the docs sanction
 either; a live Connect answered 400 to the form field alone — issue
-#81 — so both ride along); per-server reads add `srv` (the server's
-stable name, e.g. `emil100`). The API is aggressively cached
+#81 — so both ride along). Every call also carries `srv`: the API
+expects a server name on every request and answers 400 "server not
+provided" without one (issue #89). The credential's **default server**
+rides wherever the caller passes no explicit `srv`; per-server `/info`
+reads pass their own, which wins. The API is aggressively cached
 server-side (60s), so a sync makes one `/serwery` call plus one
 `/info` call per server and nothing else.
 
@@ -203,13 +206,20 @@ follow-up warning.
 
 ### Credentials
 
-One `api_key` (schema version 1, a single password field). On the
-account-level `/serwery` calls (credential validation, inventory
-discovery), 400, 401, and 403 reject the key permanently
-(`InvalidCredentialsException`, clearing `verified_at`) — a live
-Connect showed mikr.us answering a filled-but-rejected key with HTTP
-400 (issue #81), and `/serwery` is the only request where the key is
-the sole variable. On per-server `/info` calls only 401/403 reject;
+Two fields (schema version 2): the `api_key` password field plus a
+required, non-secret `default_server` — the name of one of the
+account's servers (e.g. `emil100`). A live Connect showed the API
+answering skill-less `/serwery` calls with 400 "server not provided"
+(issue #89), so without a default server the account cannot work at
+all; the field is therefore required, and stored payloads that predate
+it fail the at-rest schema check naming the field until the
+credentials are re-entered. On the account-level `/serwery` calls
+(credential validation, inventory discovery), 400, 401, and 403 reject
+permanently (`InvalidCredentialsException`, clearing `verified_at`) —
+a live Connect showed mikr.us answering a filled-but-rejected key with
+HTTP 400 (issue #81), and `/serwery` is the only request where the key
+and the default server are the only variables, so a 400 there may name
+either. On per-server `/info` calls only 401/403 reject;
 a 400 there is generic (a stale `srv`, most plausibly) and transient,
 so one odd server degrades the batch instead of rejecting healthy
 credentials. 429, 5xx, unreadable bodies, and connection failures are
@@ -237,8 +247,11 @@ community CLI. Before trusting metadata or error mapping in anger:
 regenerate `tests/Fixtures/Mikrus/` from a real read-only account
 (one `/serwery` + per-server `/info` capture), confirm the bad-key
 status code (observed live as 400, issue #81; verify it is stable)
-and the error body's shape, and confirm `expire`/`pro` field names
-and types.
+and the error body's shape, confirm `expire`/`pro` field names
+and types, and confirm that `srv` is accepted on `/serwery` with the
+default server riding along (issue #89's 400 was observed live; the
+listing's response shape under `srv` is not yet regressed against a
+real account).
 
 ## RackNerd — manual only
 

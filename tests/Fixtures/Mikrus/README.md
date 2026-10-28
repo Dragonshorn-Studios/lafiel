@@ -11,14 +11,18 @@ read-only account spike and confirm the response shapes still match.
 ## What the shapes assume
 
 ```
-POST /serwery          (key) → list of servers: name (stable server id),
-                              proto, ip, optional virtualization
+POST /serwery          (key, srv) → list of servers: name (stable server id),
+                               proto, ip, optional virtualization
 POST /info             (key, srv) → one server: name, expire, pro,
-                              cytrus_expire, storage_expire, uptime
+                               cytrus_expire, storage_expire, uptime
 auth: form field `key` and the Authorization header on every call;
       bad key → HTTP 400 on the account listing (observed live, issue
       #81; 401/403 also mapped; a 400 on per-server /info is NOT a
       key rejection and stays transient)
+srv:   the API expects the `srv` variable on every call; without one
+      it answers 400 "server not provided" (observed live, issue #89).
+      /serwery carries the credential's default server; /info carries
+      the per-server name, which wins over the default.
 ```
 
 `expire`/`cytrus_expire`/`storage_expire` are assumed to be unix
