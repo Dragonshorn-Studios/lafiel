@@ -14,20 +14,25 @@ use Illuminate\Support\Str;
  * Every mikr.us endpoint is a POST carrying the account API key both
  * as the `key` form field and in the Authorization header — the docs
  * sanction either, and a live Connect answered 400 to the form field
- * alone, so both ride along. `srv` rides only on per-server reads.
+ * alone, so both ride along. `srv` rides on every call: the API
+ * expects a server name on every request and answers 400 "server not
+ * provided" without one (issue #89), so the credential's default
+ * server rides wherever the caller passes no explicit `srv` —
+ * server-specific reads keep their own, which always wins.
  * HTTP failures become the typed provider exceptions with sanitized
  * messages. On the account-level `/serwery` calls (credential
- * validation and inventory discovery) 400, 401, and 403 mean the key
- * was rejected and are never retried — a live Connect answered a bad
- * key with 400 plus an explanatory body; on per-server `/info` calls
- * only 401/403 reject, because 400 is a generic client-error status
- * there (a stale `srv`, most plausibly) and one odd server must
- * degrade the batch rather than reject healthy credentials. 429, 5xx,
- * and connection failures are transient everywhere. mikr.us documents
- * no error format, so failure messages other than rate limits may
- * append a short excerpt of the API's own error body — control bytes
- * stripped, whitespace-collapsed, length-capped, and with the API key
- * scrubbed — never other payload or credential material.
+ * validation and inventory discovery) 400, 401, and 403 are trusted
+ * conditions — the key was rejected or the default server is wrong —
+ * and are never retried: a live Connect answered a bad key with 400
+ * plus an explanatory body; on per-server `/info` calls only 401/403
+ * reject, because 400 is a generic client-error status there (a stale
+ * `srv`, most plausibly) and one odd server must degrade the batch
+ * rather than reject healthy credentials. 429, 5xx, and connection
+ * failures are transient everywhere. mikr.us documents no error
+ * format, so failure messages other than rate limits may append a
+ * short excerpt of the API's own error body — control bytes stripped,
+ * whitespace-collapsed, length-capped, and with the API key scrubbed —
+ * never other payload or credential material.
  */
 final class HttpMikrusApi implements MikrusApi
 {
@@ -35,7 +40,10 @@ final class HttpMikrusApi implements MikrusApi
 
     private const EXCERPT_LIMIT = 120;
 
-    public function __construct(private readonly string $apiKey) {}
+    public function __construct(
+        private readonly string $apiKey,
+        private readonly string $defaultServer,
+    ) {}
 
     public function post(string $path, array $fields = []): array
     {
@@ -44,13 +52,15 @@ final class HttpMikrusApi implements MikrusApi
         $status = $response->status();
         $excerpt = $this->errorExcerpt($response);
 
-        // A 400 is key-specific only where the key is the only variable
-        // in play: the account listing. Anywhere else the request
-        // carries per-server parameters, so a 400 is treated like any
-        // other generic failure — transient, degrading, not rejecting.
+        // A credential-level rejection is 401/403 anywhere, plus a 400
+        // only where the key and the default server are the sole
+        // variables in play: the account listing. Anywhere else the
+        // request carries per-server parameters, so a 400 is treated
+        // like any other generic failure — transient, degrading, not
+        // rejecting.
         if (in_array($status, [401, 403], true) || ($status === 400 && $path === '/serwery')) {
             throw new InvalidCredentialsException(
-                "Mikr.us rejected the API key for [{$path}] (HTTP {$status})".($excerpt === '' ? '.' : $excerpt)
+                "Mikr.us rejected the request for [{$path}] (HTTP {$status})".($excerpt === '' ? '.' : $excerpt)
             );
         }
 
@@ -79,13 +89,20 @@ final class HttpMikrusApi implements MikrusApi
      */
     private function send(string $path, array $fields): Response
     {
+        // An explicit `srv` (a per-server read) takes precedence over
+        // the credential's default server, which otherwise backs every
+        // call — the API rejects requests without one (issue #89).
         try {
             return Http::baseUrl(self::API_BASE_URL)
                 ->asForm()
                 ->withHeaders(['Authorization' => $this->apiKey])
                 ->connectTimeout(5)
                 ->timeout(15)
-                ->post($path, ['key' => $this->apiKey, ...$fields]);
+                ->post($path, [
+                    'key' => $this->apiKey,
+                    'srv' => $this->defaultServer,
+                    ...$fields,
+                ]);
         } catch (ConnectionException) {
             throw new TransientProviderException("Mikr.us API could not be reached for [{$path}].");
         }

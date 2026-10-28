@@ -239,8 +239,8 @@ function ovhServicesFake(string $listing = 'services-run-a.json'): FakeOvhApi
 }
 
 /**
- * A synthetic mikr.us credential payload for tests. The value is fake
- * but secret-shaped, so redaction tests can assert it never leaks.
+ * A synthetic mikr.us credential payload for tests. The values are fake
+ * but secret-shaped, so redaction tests can assert they never leak.
  *
  * @param  array<string, mixed>  $overrides
  * @return array<string, string>
@@ -249,6 +249,7 @@ function mikrusPayload(array $overrides = []): array
 {
     return [
         'api_key' => 'MIK0000000000000000000000000000000000000000000000000000000000',
+        'default_server' => 'emil100',
         ...$overrides,
     ];
 }

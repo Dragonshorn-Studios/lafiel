@@ -132,7 +132,7 @@ it('produces an unsupported empty cost batch and no credential check rejections 
 it('maps a rejected key during validation to an invalid check', function () {
     $api = new FakeMikrusApi(mikrusResponses());
     $api->throwOn('/serwery', [
-        new InvalidCredentialsException('Mikr.us rejected the API key for [/serwery] (HTTP 403).'),
+        new InvalidCredentialsException('Mikr.us rejected the request for [/serwery] (HTTP 403).'),
     ]);
     $adapter = mikrusAdapter($api);
 
@@ -145,7 +145,7 @@ it('maps a rejected key during validation to an invalid check', function () {
 it('propagates a mid-inventory credential rejection instead of degrading to partial', function () {
     $api = new FakeMikrusApi(mikrusResponses());
     $api->throwOn('/info', [
-        new InvalidCredentialsException('Mikr.us rejected the API key for [/info] (HTTP 401).'),
+        new InvalidCredentialsException('Mikr.us rejected the request for [/info] (HTTP 401).'),
     ]);
     $adapter = mikrusAdapter($api);
 
