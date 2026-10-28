@@ -392,6 +392,7 @@ new #[Title('Services')] class extends Component {
             </flux:button>
         </x-imperial.empty-state>
     @else
+    <x-imperial.table-frame>
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Provider') }}</flux:table.column>
@@ -521,6 +522,7 @@ new #[Title('Services')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    </x-imperial.table-frame>
     @endif
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}

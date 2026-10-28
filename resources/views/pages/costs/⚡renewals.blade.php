@@ -38,6 +38,7 @@ new #[Title('Renewals')] class extends Component {
     @if ($this->renewals->isEmpty())
         <x-imperial.empty-state :hint="__('Charges with a renewal date will appear here.')"/>
     @else
+    <x-imperial.table-frame>
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
@@ -66,5 +67,6 @@ new #[Title('Renewals')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    </x-imperial.table-frame>
     @endif
 </section>

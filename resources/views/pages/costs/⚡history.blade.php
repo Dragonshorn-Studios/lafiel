@@ -24,6 +24,7 @@ new #[Title('Cost history')] class extends Component {
     @if ($this->history->isEmpty())
         <x-imperial.empty-state :hint="__('Ended charges keep their full price history here.')"/>
     @else
+    <x-imperial.table-frame>
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Service') }}</flux:table.column>
@@ -52,5 +53,6 @@ new #[Title('Cost history')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    </x-imperial.table-frame>
     @endif
 </section>

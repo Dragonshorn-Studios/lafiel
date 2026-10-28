@@ -306,6 +306,7 @@ new #[Title('Sync activity')] class extends Component {
     @if ($this->runs->isEmpty())
         <x-imperial.empty-state :hint="__('Queued, running, and finished synchronizations appear here. Start one from the Providers page.')" />
     @else
+        <x-imperial.table-frame>
         <flux:table>
             <flux:table.columns>
                 <flux:table.column>{{ __('Account') }}</flux:table.column>
@@ -400,6 +401,7 @@ new #[Title('Sync activity')] class extends Component {
                 @endforeach
             </flux:table.rows>
         </flux:table>
+        </x-imperial.table-frame>
 
         <flux:pagination :paginator="$this->runs" />
     @endif
