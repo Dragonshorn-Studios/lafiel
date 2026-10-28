@@ -176,6 +176,26 @@ test('the services view groups same-name rows under one header with the summed m
         ->assertSee('64.00 PLN/mo');
 });
 
+test('a named group header keeps the service and provider in one label', function () {
+    $account = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
+    $service = Service::factory()->discovered($account)->create(['name' => 'example.com']);
+
+    CostItem::factory()->create(['amount_minor' => 4900, 'currency' => 'PLN', 'observed_at' => now()])->services()->attach($service->id);
+
+    // Name and qualifier must share one wrapper. Sibling flex children
+    // of the monthly total is what sent "· Provider" across the row.
+    $html = Livewire::test('pages::costs.index')->html();
+    $dom = new DOMDocument;
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML('<meta charset="utf-8">'.$html);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $label = (new DOMXPath($dom))->query('//*[@data-test="cost-group-label"]')->item(0);
+
+    expect($label)->not->toBeNull();
+    expect(preg_replace('/\s+/', ' ', trim($label->textContent)))->toBe('example.com · OVHcloud');
+});
+
 test('the same name under different providers stays in separate groups', function () {
     $ovh = ProviderAccount::factory()->create(['display_name' => 'OVHcloud']);
     $mikrus = ProviderAccount::factory()->create(['provider_key' => 'mikrus', 'display_name' => 'Mikr.us']);

@@ -392,6 +392,7 @@ new #[Title('Services')] class extends Component {
             </flux:button>
         </x-imperial.empty-state>
     @else
+    <x-imperial.table-frame>
     <flux:table>
         <flux:table.columns>
             <flux:table.column>{{ __('Provider') }}</flux:table.column>
@@ -411,7 +412,7 @@ new #[Title('Services')] class extends Component {
                      sum of what the children already show (per currency). --}}
                 <flux:table.row :key="'group-'.$loop->index" class="bg-surface-subtle">
                     <flux:table.cell colspan="9">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
                             @if ($group['unlabeled'])
                                 <button
                                     type="button"
@@ -425,12 +426,15 @@ new #[Title('Services')] class extends Component {
                                     <span class="font-mono text-xs font-normal text-ink-muted">{{ count($group['rows']) }}</span>
                                 </button>
                             @else
-                                <span class="text-sm font-semibold text-ink">{{ $group['label'] }}</span>
-                                <span class="text-sm text-ink-secondary">· {{ $group['provider'] }}</span>
+                                {{-- One flex child so "Service · Provider" stays a single left-aligned
+                                     label; ms-auto then parks the monthly total on the right. --}}
+                                <span class="min-w-0 break-words text-sm" data-test="cost-group-label">
+                                    <span class="font-semibold text-ink">{{ $group['label'] }}</span><span class="text-ink-secondary"> · {{ $group['provider'] }}</span>
+                                </span>
                             @endif
 
                             @if ($group['monthly'] !== '')
-                                <span class="font-mono text-sm font-semibold tabular-nums text-ink">{{ $group['monthly'] }}</span>
+                                <span class="ms-auto shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">{{ $group['monthly'] }}</span>
                             @endif
                         </div>
                     </flux:table.cell>
@@ -518,6 +522,7 @@ new #[Title('Services')] class extends Component {
             @endforeach
         </flux:table.rows>
     </flux:table>
+    </x-imperial.table-frame>
     @endif
 
     {{-- The add/edit form lives in a right-side pop-out panel. --}}
